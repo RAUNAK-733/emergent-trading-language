@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AccessGuard | Risk Register</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body onload="displayUserInfo(); displayRisks();">
+  <nav class="navbar navbar-expand-lg app-navbar">
+    <div class="container">
+      <a class="navbar-brand" href="dashboard.html">AccessGuard</a>
+      <div class="d-flex align-items-center gap-3">
+        <span class="navbar-user">
+          <span id="displayUsername">User</span> | <span id="displayRole">Role</span>
+        </span>
+        <button class="btn btn-outline-light btn-sm" onclick="logoutUser()">Logout</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container py-4">
+    <section class="dashboard-header mb-4">
+      <p class="section-label">Risk Management</p>
+      <h1>Risk Register</h1>
+      <p class="mb-0">A simple table for tracking cybersecurity and access-control risks.</p>
+    </section>
+
+    <section class="table-card mb-4">
+      <h2 class="form-title">Add New Risk</h2>
+
+      <form onsubmit="addRisk(event)">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label for="riskName" class="form-label">Risk Name</label>
+            <input type="text" class="form-control" id="riskName" placeholder="Example: Unauthorized access">
+          </div>
+
+          <div class="col-md-6">
+            <label for="riskControl" class="form-label">Control</label>
+            <input type="text" class="form-control" id="riskControl" placeholder="Example: Apply RBAC">
+          </div>
+
+          <div class="col-md-4">
+            <label for="riskImpact" class="form-label">Impact</label>
+            <select class="form-select" id="riskImpact">
+              <option value="">Select impact</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label for="riskLikelihood" class="form-label">Likelihood</label>
+            <select class="form-select" id="riskLikelihood">
+              <option value="">Select likelihood</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label for="riskLevel" class="form-label">Risk Level</label>
+            <select class="form-select" id="riskLevel">
+              <option value="">Select risk level</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary mt-3">Add Risk</button>
+      </form>
+    </section>
+
+    <section class="table-card">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>Risk ID</th>
+              <th>Risk Name</th>
+              <th>Impact</th>
+              <th>Likelihood</th>
+              <th>Risk Level</th>
+              <th>Control</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="riskTableBody">
+            <tr>
+              <td colspan="7" class="text-center text-muted">No risks found</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
