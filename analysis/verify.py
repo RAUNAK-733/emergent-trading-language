@@ -47,7 +47,7 @@ def load_config():
     path = "checkpoints/config.pt"
     if os.path.exists(path):
         default.update(torch.load(path, map_location="cpu"))
-    if default["architecture"] != "inventory_message_give_v2":
+    if default["architecture"] != "inventory_message_give_mi_v3":
         raise RuntimeError(
             "The saved checkpoints use an older actor architecture. "
             "Run training again before verification."
@@ -210,6 +210,14 @@ def verify():
     random_gain = results["normal"]["efficiency"] - results["random"]["efficiency"]
     language_gain = min(zero_gain, random_gain)
     strong = language_gain >= 0.05 and results["normal"]["useful"] > results["zero"]["useful"]
+    symbol_counts = np.bincount(
+        results["normal"]["symbols"],
+        minlength=config["vocab_size"],
+    )
+    symbol_probs = symbol_counts / max(symbol_counts.sum(), 1)
+    symbol_entropy = float(
+        -(symbol_probs[symbol_probs > 0] * np.log2(symbol_probs[symbol_probs > 0])).sum()
+    )
 
     print("\n=== VERIFICATION RESULTS ===")
     for name, result in results.items():
@@ -220,6 +228,8 @@ def verify():
     print(f"\nAdvantage over zero message  : {zero_gain:.3f}")
     print(f"Advantage over random message: {random_gain:.3f}")
     print(f"Minimum language advantage   : {language_gain:.3f}")
+    print(f"Agent A symbol counts        : {symbol_counts.tolist()}")
+    print(f"Agent A symbol entropy       : {symbol_entropy:.3f} bits")
     print(f"Conclusion: {'COMMUNICATION HELPS' if strong else 'NOT PROVEN YET'}")
 
     normal = results["normal"]

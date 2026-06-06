@@ -62,6 +62,18 @@ class AgentArchitectureTests(unittest.TestCase):
 
         self.assertTrue(torch.all(offer <= 1))
 
+    def test_message_probabilities_sum_to_one(self):
+        obs = torch.tensor([[2.0, 4.0, 0.9, 0.1]])
+
+        probabilities = self.agent.message_probabilities(obs)
+
+        self.assertTrue(
+            torch.allclose(
+                probabilities.sum(dim=-1),
+                torch.ones(1, 1),
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

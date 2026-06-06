@@ -132,6 +132,8 @@ def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
 
     msg_a, logp_speak_a = agent_a.speak(obs_a, temperature)
     msg_b, logp_speak_b = agent_b.speak(obs_b, temperature)
+    probs_a = agent_a.message_probabilities(obs_a, temperature)
+    probs_b = agent_b.message_probabilities(obs_b, temperature)
     offer_limit = min(
         agent_a.max_offer,
         1 + int(progress * agent_a.max_offer),
@@ -172,6 +174,8 @@ def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
         "useful": useful,
         "logp_a_to_b": logp_speak_b + logp_act_a,
         "logp_b_to_a": logp_speak_a + logp_act_b,
+        "probs_a": probs_a,
+        "probs_b": probs_b,
     }
 
 
@@ -271,7 +275,8 @@ def train(resume=True):
         "batch_size": 64,
         "gumbel_temp": 1.2,
         "temp_anneal": 0.99985,
-        "architecture": "inventory_message_give_v2",
+        "message_mi_weight": 0.50,
+        "architecture": "inventory_message_give_mi_v3",
     }
 
     env = TradingEnv(
@@ -376,7 +381,26 @@ def train(resume=True):
             )
             loss_a_to_b = -(advantages_a_to_b * logps_a_to_b).mean()
             loss_b_to_a = -(advantages_b_to_a * logps_b_to_a).mean()
+            probs_a = torch.cat([ep["probs_a"] for ep in episodes], dim=0)
+            probs_b = torch.cat([ep["probs_b"] for ep in episodes], dim=0)
+            marginal_a = probs_a.mean(dim=0)
+            marginal_b = probs_b.mean(dim=0)
+            marginal_entropy_a = -(marginal_a * torch.log(marginal_a + 1e-8)).sum()
+            marginal_entropy_b = -(marginal_b * torch.log(marginal_b + 1e-8)).sum()
+            conditional_entropy_a = -(
+                probs_a * torch.log(probs_a + 1e-8)
+            ).sum(dim=-1).mean()
+            conditional_entropy_b = -(
+                probs_b * torch.log(probs_b + 1e-8)
+            ).sum(dim=-1).mean()
+            message_information = (
+                marginal_entropy_a
+                + marginal_entropy_b
+                - conditional_entropy_a
+                - conditional_entropy_b
+            )
             loss = loss_a_to_b + loss_b_to_a
+            loss -= config["message_mi_weight"] * message_information
 
             opt.zero_grad()
             loss.backward()
@@ -454,3 +478,4 @@ def train(resume=True):
 
 if __name__ == "__main__":
     train()
+

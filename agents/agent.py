@@ -69,6 +69,12 @@ class Agent(nn.Module):
 
         return message, log_prob
 
+    def message_probabilities(self, obs_full, temperature=1.0):
+        """Return the speaker's token probabilities for analysis and regularization."""
+        logits = self.speak_net(obs_full)
+        logits = logits.view(-1, self.msg_length, self.vocab_size)
+        return torch.softmax(logits / max(temperature, 1e-6), dim=-1)
+
     def act(
         self,
         obs_full,
