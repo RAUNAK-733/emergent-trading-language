@@ -70,8 +70,11 @@ python main.py baseline
 Train a new pair of agents:
 
 ```bash
-python main.py train
+python main.py train --fresh
 ```
+
+Training saves progress every 500 updates and when interrupted with `Ctrl + C`.
+Run `python main.py train` to resume the saved run.
 
 Verify whether the messages help:
 

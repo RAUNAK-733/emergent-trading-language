@@ -10,6 +10,47 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agent import Agent
 from env.trading_env import TradingEnv
 
+TRAINING_STATE_PATH = "checkpoints/training_state.pt"
+
+
+def save_training_state(
+    path,
+    agent_a,
+    agent_b,
+    optimizer,
+    config,
+    update,
+    temperature,
+    baseline_a_to_b,
+    baseline_b_to_a,
+):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(
+        {
+            "agent_a": agent_a.state_dict(),
+            "agent_b": agent_b.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "config": config,
+            "update": update,
+            "temperature": temperature,
+            "baseline_a_to_b": baseline_a_to_b,
+            "baseline_b_to_a": baseline_b_to_a,
+        },
+        path,
+    )
+
+
+def load_training_state(path, agent_a, agent_b, optimizer, config):
+    """Load a trusted local checkpoint created by this training script."""
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    saved_config = state["config"]
+    if saved_config.get("architecture") != config["architecture"]:
+        raise RuntimeError("Checkpoint architecture does not match the current model.")
+    agent_a.load_state_dict(state["agent_a"])
+    agent_b.load_state_dict(state["agent_b"])
+    optimizer.load_state_dict(state["optimizer"])
+    return state
+
 
 def optimal_joint_reward(env):
     value_gap = env.util_a - env.util_b
@@ -217,7 +258,7 @@ def random_baseline(config, n_episodes=5000):
     }
 
 
-def train():
+def train(resume=True):
     config = {
         "n_resources": 2,
         "max_inventory": 5,
@@ -264,8 +305,24 @@ def train():
     temperature = config["gumbel_temp"]
     running_baseline_a_to_b = 0.0
     running_baseline_b_to_a = 0.0
+    start_update = 1
 
-    print("Training started...")
+    if resume and os.path.exists(TRAINING_STATE_PATH):
+        state = load_training_state(
+            TRAINING_STATE_PATH,
+            agent_a,
+            agent_b,
+            opt,
+            config,
+        )
+        start_update = int(state["update"]) + 1
+        temperature = float(state["temperature"])
+        running_baseline_a_to_b = float(state["baseline_a_to_b"])
+        running_baseline_b_to_a = float(state["baseline_b_to_a"])
+        print(f"Resuming training from update {start_update}...")
+    else:
+        print("Training started...")
+
     print(
         f"Random baseline | valid={baseline['valid']:.1%} | "
         f"useful={baseline['useful']:.1%} | efficiency={baseline['efficiency']:.3f}"
@@ -276,70 +333,100 @@ def train():
     )
     print("-" * 78)
 
-    for update in range(1, config["updates"] + 1):
-        progress = update / config["updates"]
-        episodes = [
-            sample_episode(env, agent_a, agent_b, temperature, progress)
-            for _ in range(config["batch_size"])
-        ]
-        objectives_a_to_b = np.array(
-            [ep["objective_a_to_b"] for ep in episodes],
-            dtype=np.float32,
-        )
-        objectives_b_to_a = np.array(
-            [ep["objective_b_to_a"] for ep in episodes],
-            dtype=np.float32,
-        )
-        running_baseline_a_to_b = (
-            0.95 * running_baseline_a_to_b
-            + 0.05 * float(objectives_a_to_b.mean())
-        )
-        running_baseline_b_to_a = (
-            0.95 * running_baseline_b_to_a
-            + 0.05 * float(objectives_b_to_a.mean())
-        )
-        advantages_a_to_b = torch.tensor(
-            objectives_a_to_b - running_baseline_a_to_b,
-            dtype=torch.float32,
-        ).view(-1, 1)
-        advantages_b_to_a = torch.tensor(
-            objectives_b_to_a - running_baseline_b_to_a,
-            dtype=torch.float32,
-        ).view(-1, 1)
-
-        logps_a_to_b = torch.cat(
-            [ep["logp_a_to_b"] for ep in episodes],
-            dim=0,
-        )
-        logps_b_to_a = torch.cat(
-            [ep["logp_b_to_a"] for ep in episodes],
-            dim=0,
-        )
-        loss_a_to_b = -(advantages_a_to_b * logps_a_to_b).mean()
-        loss_b_to_a = -(advantages_b_to_a * logps_b_to_a).mean()
-        loss = loss_a_to_b + loss_b_to_a
-
-        opt.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            list(agent_a.parameters()) + list(agent_b.parameters()),
-            1.0,
-        )
-        opt.step()
-
-        temperature = max(0.25, temperature * config["temp_anneal"])
-
-        if update % 500 == 0:
-            valid = np.mean([ep["valid"] for ep in episodes])
-            useful = np.mean([ep["useful"] for ep in episodes])
-            efficiency = np.mean([ep["efficiency"] for ep in episodes])
-            no_msg = evaluate(agent_a, agent_b, config, mode="zero", n_episodes=800)
-            print(
-                f"{update:>8} | {valid:>7.1%} | {useful:>7.1%} | "
-                f"{efficiency:>10.3f} | {no_msg['efficiency']:>10.3f} | "
-                f"{min(config['max_offer'], 1 + int(progress * config['max_offer'])):>5} | "
-                f"{min(1.0, progress / 0.60):>6.2f}"
+    completed_update = start_update - 1
+    try:
+        for update in range(start_update, config["updates"] + 1):
+            progress = update / config["updates"]
+            episodes = [
+                sample_episode(env, agent_a, agent_b, temperature, progress)
+                for _ in range(config["batch_size"])
+            ]
+            objectives_a_to_b = np.array(
+                [ep["objective_a_to_b"] for ep in episodes],
+                dtype=np.float32,
             )
+            objectives_b_to_a = np.array(
+                [ep["objective_b_to_a"] for ep in episodes],
+                dtype=np.float32,
+            )
+            running_baseline_a_to_b = (
+                0.95 * running_baseline_a_to_b
+                + 0.05 * float(objectives_a_to_b.mean())
+            )
+            running_baseline_b_to_a = (
+                0.95 * running_baseline_b_to_a
+                + 0.05 * float(objectives_b_to_a.mean())
+            )
+            advantages_a_to_b = torch.tensor(
+                objectives_a_to_b - running_baseline_a_to_b,
+                dtype=torch.float32,
+            ).view(-1, 1)
+            advantages_b_to_a = torch.tensor(
+                objectives_b_to_a - running_baseline_b_to_a,
+                dtype=torch.float32,
+            ).view(-1, 1)
+
+            logps_a_to_b = torch.cat(
+                [ep["logp_a_to_b"] for ep in episodes],
+                dim=0,
+            )
+            logps_b_to_a = torch.cat(
+                [ep["logp_b_to_a"] for ep in episodes],
+                dim=0,
+            )
+            loss_a_to_b = -(advantages_a_to_b * logps_a_to_b).mean()
+            loss_b_to_a = -(advantages_b_to_a * logps_b_to_a).mean()
+            loss = loss_a_to_b + loss_b_to_a
+
+            opt.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                list(agent_a.parameters()) + list(agent_b.parameters()),
+                1.0,
+            )
+            opt.step()
+            completed_update = update
+
+            temperature = max(0.25, temperature * config["temp_anneal"])
+
+            if update % 500 == 0:
+                valid = np.mean([ep["valid"] for ep in episodes])
+                useful = np.mean([ep["useful"] for ep in episodes])
+                efficiency = np.mean([ep["efficiency"] for ep in episodes])
+                no_msg = evaluate(agent_a, agent_b, config, mode="zero", n_episodes=800)
+                print(
+                    f"{update:>8} | {valid:>7.1%} | {useful:>7.1%} | "
+                    f"{efficiency:>10.3f} | {no_msg['efficiency']:>10.3f} | "
+                    f"{min(config['max_offer'], 1 + int(progress * config['max_offer'])):>5} | "
+                    f"{min(1.0, progress / 0.60):>6.2f}"
+                )
+                save_training_state(
+                    TRAINING_STATE_PATH,
+                    agent_a,
+                    agent_b,
+                    opt,
+                    config,
+                    completed_update,
+                    temperature,
+                    running_baseline_a_to_b,
+                    running_baseline_b_to_a,
+                )
+                print(f"         Saved progress at update {completed_update}.")
+    except KeyboardInterrupt:
+        save_training_state(
+            TRAINING_STATE_PATH,
+            agent_a,
+            agent_b,
+            opt,
+            config,
+            completed_update,
+            temperature,
+            running_baseline_a_to_b,
+            running_baseline_b_to_a,
+        )
+        print(f"\nTraining interrupted. Progress saved at update {completed_update}.")
+        print("Run the same command again to resume.")
+        return
 
     os.makedirs("checkpoints", exist_ok=True)
     torch.save(agent_a.state_dict(), "checkpoints/agent_a.pt")
