@@ -44,12 +44,19 @@ class Agent(nn.Module):
         if deterministic:
             tokens = scaled_logits.argmax(dim=-1)
             log_prob = torch.zeros(obs.shape[0], 1, device=obs.device)
+            message = F.one_hot(tokens, num_classes=self.vocab_size).float()
         else:
-            dist = Categorical(logits=scaled_logits)
-            tokens = dist.sample()
-            log_prob = dist.log_prob(tokens).sum(dim=-1, keepdim=True)
+            message = F.gumbel_softmax(
+                scaled_logits,
+                tau=1.0,
+                hard=True,
+                dim=-1,
+            )
+            tokens = message.argmax(dim=-1)
+            log_prob = torch.log_softmax(scaled_logits, dim=-1)
+            log_prob = log_prob.gather(-1, tokens.unsqueeze(-1))
+            log_prob = log_prob.sum(dim=-2)
 
-        message = F.one_hot(tokens, num_classes=self.vocab_size).float()
         return message, log_prob
 
     def act(self, obs, received_msg, temperature=1.0, deterministic=False):
