@@ -17,12 +17,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install core test dependency
-        run: python -m pip install numpy
+      - name: Install test dependencies
+        run: python -m pip install numpy torch
 
       - name: Compile Python sources
         run: python -m py_compile agents/agent.py env/trading_env.py env/baseline.py training/train.py analysis/verify.py main.py
 
       - name: Run core environment tests
         run: python -m unittest discover -s tests -v
-

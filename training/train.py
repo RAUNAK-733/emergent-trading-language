@@ -18,11 +18,6 @@ def optimal_joint_reward(env):
     return max(b_to_a + a_to_b, 1e-8)
 
 
-def actor_observation(obs, n_resources):
-    """Actor sees own preferences; sender message must convey inventory."""
-    return obs[:, n_resources:]
-
-
 def trade_score(env, offer_a, offer_b):
     reward_a, reward_b, success = env.step(offer_a, offer_b)
     if not success:
@@ -61,10 +56,8 @@ def sample_episode(env, agent_a, agent_b, temperature):
 
     msg_a, logp_speak_a = agent_a.speak(obs_a, temperature)
     msg_b, logp_speak_b = agent_b.speak(obs_b, temperature)
-    act_obs_a = actor_observation(obs_a, env.n_resources)
-    act_obs_b = actor_observation(obs_b, env.n_resources)
-    offer_a_t, logp_act_a = agent_a.act(act_obs_a, msg_b, temperature)
-    offer_b_t, logp_act_b = agent_b.act(act_obs_b, msg_a, temperature)
+    offer_a_t, logp_act_a = agent_a.act(obs_a, msg_b, temperature)
+    offer_b_t, logp_act_b = agent_b.act(obs_b, msg_a, temperature)
 
     offer_a = offer_a_t.squeeze(0).detach().cpu().numpy().astype(int)
     offer_b = offer_b_t.squeeze(0).detach().cpu().numpy().astype(int)
@@ -119,10 +112,8 @@ def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
             elif mode != "normal":
                 raise ValueError(f"Unknown evaluation mode: {mode}")
 
-            act_obs_a = actor_observation(obs_a, config["n_resources"])
-            act_obs_b = actor_observation(obs_b, config["n_resources"])
-            offer_a_t, _ = agent_a.act(act_obs_a, msg_b, deterministic=True)
-            offer_b_t, _ = agent_b.act(act_obs_b, msg_a, deterministic=True)
+            offer_a_t, _ = agent_a.act(obs_a, msg_b, deterministic=True)
+            offer_b_t, _ = agent_b.act(obs_b, msg_a, deterministic=True)
             offer_a = offer_a_t.squeeze(0).cpu().numpy().astype(int)
             offer_b = offer_b_t.squeeze(0).cpu().numpy().astype(int)
             valid, efficiency, useful = trade_score(env, offer_a, offer_b)
@@ -181,6 +172,7 @@ def train():
         "batch_size": 64,
         "gumbel_temp": 1.2,
         "temp_anneal": 0.99985,
+        "architecture": "inventory_message_v1",
     }
 
     env = TradingEnv(
@@ -196,7 +188,6 @@ def train():
         config["n_resources"],
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
-        act_obs_dim=config["n_resources"],
     )
     agent_b = Agent(
         obs_dim,
@@ -205,7 +196,6 @@ def train():
         config["n_resources"],
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
-        act_obs_dim=config["n_resources"],
     )
 
     opt = torch.optim.Adam(
@@ -280,10 +270,10 @@ def train():
     print(f"Zero-message efficiency    : {zero['efficiency']:.3f}")
     print(f"Random-message efficiency  : {random_msg['efficiency']:.3f}")
     print(f"Random baseline efficiency : {baseline['efficiency']:.3f}")
-    print(
-        "Language advantage         : "
-        f"{normal['efficiency'] - max(zero['efficiency'], random_msg['efficiency']):.3f}"
-    )
+    zero_gain = normal["efficiency"] - zero["efficiency"]
+    random_gain = normal["efficiency"] - random_msg["efficiency"]
+    print(f"Advantage over zero message: {zero_gain:.3f}")
+    print(f"Advantage over random msg  : {random_gain:.3f}")
     print(
         "Result                     : "
         f"{'STRONGER EVIDENCE' if normal['efficiency'] > max(zero['efficiency'], random_msg['efficiency'], baseline['efficiency']) + 0.05 else 'needs more training/complexity'}"

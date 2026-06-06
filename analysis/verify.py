@@ -24,10 +24,6 @@ def optimal_joint_reward(env):
     return max(b_to_a + a_to_b, 1e-8)
 
 
-def actor_observation(obs, n_resources):
-    return obs[:, n_resources:]
-
-
 def score_trade(env, offer_a, offer_b):
     reward_a, reward_b, success = env.step(offer_a, offer_b)
     if not success:
@@ -45,10 +41,16 @@ def load_config():
         "vocab_size": 4,
         "msg_length": 1,
         "hidden_dim": 96,
+        "architecture": None,
     }
     path = "checkpoints/config.pt"
     if os.path.exists(path):
         default.update(torch.load(path, map_location="cpu"))
+    if default["architecture"] != "inventory_message_v1":
+        raise RuntimeError(
+            "The saved checkpoints use an older actor architecture. "
+            "Run training again before verification."
+        )
     return default
 
 
@@ -61,7 +63,6 @@ def make_agents(config):
         n_resources=config["n_resources"],
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
-        act_obs_dim=config["n_resources"],
     )
     agent_b = Agent(
         obs_dim,
@@ -70,7 +71,6 @@ def make_agents(config):
         n_resources=config["n_resources"],
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
-        act_obs_dim=config["n_resources"],
     )
     agent_a.load_state_dict(torch.load("checkpoints/agent_a.pt", map_location="cpu"))
     agent_b.load_state_dict(torch.load("checkpoints/agent_b.pt", map_location="cpu"))
@@ -110,13 +110,13 @@ def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
             msg_b_used = message_control(msg_b, config, mode)
 
             action_a, _ = agent_a.act(
-                actor_observation(obs_a, config["n_resources"]),
+                obs_a,
                 msg_b_used,
                 temperature=0.1,
                 deterministic=True,
             )
             action_b, _ = agent_b.act(
-                actor_observation(obs_b, config["n_resources"]),
+                obs_b,
                 msg_a_used,
                 temperature=0.1,
                 deterministic=True,
@@ -204,8 +204,9 @@ def verify():
         "random": evaluate_mode(agent_a, agent_b, config, "random"),
     }
 
-    best_control = max(results["zero"]["efficiency"], results["random"]["efficiency"])
-    language_gain = results["normal"]["efficiency"] - best_control
+    zero_gain = results["normal"]["efficiency"] - results["zero"]["efficiency"]
+    random_gain = results["normal"]["efficiency"] - results["random"]["efficiency"]
+    language_gain = min(zero_gain, random_gain)
     strong = language_gain >= 0.05 and results["normal"]["useful"] > results["zero"]["useful"]
 
     print("\n=== VERIFICATION RESULTS ===")
@@ -214,7 +215,9 @@ def verify():
             f"{name:>7} | valid={result['valid']:.1%} | "
             f"useful={result['useful']:.1%} | efficiency={result['efficiency']:.3f}"
         )
-    print(f"\nLanguage advantage over controls: {language_gain:.3f}")
+    print(f"\nAdvantage over zero message  : {zero_gain:.3f}")
+    print(f"Advantage over random message: {random_gain:.3f}")
+    print(f"Minimum language advantage   : {language_gain:.3f}")
     print(f"Conclusion: {'COMMUNICATION HELPS' if strong else 'NOT PROVEN YET'}")
 
     normal = results["normal"]

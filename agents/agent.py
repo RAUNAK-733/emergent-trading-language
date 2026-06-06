@@ -17,14 +17,13 @@ class Agent(nn.Module):
         n_resources,
         hidden_dim=64,
         max_offer=5,
-        act_obs_dim=None,
     ):
         super().__init__()
+        self.obs_dim = obs_dim
         self.vocab_size = vocab_size
         self.msg_length = msg_length
         self.n_resources = n_resources
         self.max_offer = max_offer
-        self.act_obs_dim = obs_dim if act_obs_dim is None else act_obs_dim
 
         self.speak_net = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
@@ -33,19 +32,28 @@ class Agent(nn.Module):
         )
 
         self.act_net = nn.Sequential(
-            nn.Linear(self.act_obs_dim + msg_length * vocab_size, hidden_dim),
+            nn.Linear(n_resources + msg_length * vocab_size, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, n_resources * (max_offer + 1)),
         )
 
-    def speak(self, obs, temperature=1.0, deterministic=False):
-        logits = self.speak_net(obs)
+    def extract_inventory(self, obs_full):
+        """Extract the inventory portion from a full observation."""
+        if obs_full.shape[-1] != self.obs_dim:
+            raise ValueError(
+                f"Expected full observation with {self.obs_dim} values, "
+                f"received {obs_full.shape[-1]}."
+            )
+        return obs_full[:, : self.n_resources]
+
+    def speak(self, obs_full, temperature=1.0, deterministic=False):
+        logits = self.speak_net(obs_full)
         logits = logits.view(-1, self.msg_length, self.vocab_size)
         scaled_logits = logits / max(temperature, 1e-6)
 
         if deterministic:
             tokens = scaled_logits.argmax(dim=-1)
-            log_prob = torch.zeros(obs.shape[0], 1, device=obs.device)
+            log_prob = torch.zeros(obs_full.shape[0], 1, device=obs_full.device)
             message = F.one_hot(tokens, num_classes=self.vocab_size).float()
         else:
             message = F.gumbel_softmax(
@@ -61,16 +69,17 @@ class Agent(nn.Module):
 
         return message, log_prob
 
-    def act(self, obs, received_msg, temperature=1.0, deterministic=False):
-        msg_flat = received_msg.reshape(obs.shape[0], -1)
-        x = torch.cat([obs, msg_flat], dim=-1)
+    def act(self, obs_full, received_msg, temperature=1.0, deterministic=False):
+        inventory = self.extract_inventory(obs_full)
+        msg_flat = received_msg.reshape(obs_full.shape[0], -1)
+        x = torch.cat([inventory, msg_flat], dim=-1)
         logits = self.act_net(x)
         logits = logits.view(-1, self.n_resources, self.max_offer + 1)
         scaled_logits = logits / max(temperature, 1e-6)
 
         if deterministic:
             offer = scaled_logits.argmax(dim=-1)
-            log_prob = torch.zeros(obs.shape[0], 1, device=obs.device)
+            log_prob = torch.zeros(obs_full.shape[0], 1, device=obs_full.device)
         else:
             dist = Categorical(logits=scaled_logits)
             offer = dist.sample()
@@ -88,8 +97,8 @@ if __name__ == "__main__":
     msg_a, logp_speak_a = agent_a.speak(obs)
     msg_b, logp_speak_b = agent_b.speak(obs)
 
-    action_a, logp_act_a = agent_a.act(obs, msg_b.detach())
-    action_b, logp_act_b = agent_b.act(obs, msg_a.detach())
+    action_a, logp_act_a = agent_a.act(obs, msg_b)
+    action_b, logp_act_b = agent_b.act(obs, msg_a)
 
     print("msg_a shape     :", msg_a.shape)
     print("action_a shape  :", action_a.shape)

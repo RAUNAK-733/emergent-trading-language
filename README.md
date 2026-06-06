@@ -35,7 +35,7 @@ I changed the environment after this result. Resources given away now have a cos
 Each agent has two small neural networks:
 
 - `speak_net` sees the agent's private state and sends a discrete symbol;
-- `act_net` uses the received symbol and the agent's preferences to choose an offer.
+- `act_net` uses the agent's inventory and the received symbol to choose an offer.
 
 The environment checks whether both agents can afford the trade and whether both benefit from it. Training rewards useful and fair trades while penalising impossible offers.
 
