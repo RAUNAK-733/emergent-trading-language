@@ -33,6 +33,27 @@ def trade_score(env, offer_a, offer_b):
     return 1, float(efficiency), useful
 
 
+def shaped_objective(env, offer_a, offer_b, success, efficiency):
+    """Dense learning signal; final evaluation still uses strict success."""
+    overflow_a = np.maximum(offer_a - env.inv_b, 0).sum()
+    overflow_b = np.maximum(offer_b - env.inv_a, 0).sum()
+    overflow = (overflow_a + overflow_b) / (
+        2 * env.n_resources * env.max_inventory
+    )
+
+    gain_a = float(np.dot(offer_a - offer_b, env.util_a))
+    gain_b = float(np.dot(offer_b - offer_a, env.util_b))
+    scale = optimal_joint_reward(env)
+    welfare = (gain_a + gain_b) / scale
+    fairness = min(gain_a, gain_b) / scale
+    empty_penalty = 0.10 if offer_a.sum() == 0 or offer_b.sum() == 0 else 0.0
+
+    objective = 0.45 * welfare + 0.75 * fairness - 0.60 * overflow - empty_penalty
+    if success:
+        objective += 0.25 + 0.50 * efficiency
+    return float(np.clip(objective, -1.0, 1.5))
+
+
 def sample_episode(env, agent_a, agent_b, temperature):
     obs_a_np, obs_b_np = env.reset()
     obs_a = torch.tensor(obs_a_np, dtype=torch.float32).unsqueeze(0)
@@ -40,24 +61,19 @@ def sample_episode(env, agent_a, agent_b, temperature):
 
     msg_a, logp_speak_a = agent_a.speak(obs_a, temperature)
     msg_b, logp_speak_b = agent_b.speak(obs_b, temperature)
-    offer_a_t, logp_act_a = agent_a.act(obs_a, msg_b.detach(), temperature)
-    offer_b_t, logp_act_b = agent_b.act(obs_b, msg_a.detach(), temperature)
+    act_obs_a = actor_observation(obs_a, env.n_resources)
+    act_obs_b = actor_observation(obs_b, env.n_resources)
+    offer_a_t, logp_act_a = agent_a.act(act_obs_a, msg_b, temperature)
+    offer_b_t, logp_act_b = agent_b.act(act_obs_b, msg_a, temperature)
 
     offer_a = offer_a_t.squeeze(0).detach().cpu().numpy().astype(int)
     offer_b = offer_b_t.squeeze(0).detach().cpu().numpy().astype(int)
     valid, efficiency, useful = trade_score(env, offer_a, offer_b)
 
-    ask_size = (offer_a.sum() + offer_b.sum()) / (
-        2 * env.n_resources * env.max_inventory
-    )
-    objective = efficiency if valid else -0.15
-    objective -= 0.03 * ask_size
+    objective = shaped_objective(env, offer_a, offer_b, valid, efficiency)
 
     logp_a = logp_speak_a + logp_act_a
     logp_b = logp_speak_b + logp_act_b
-    entropy_a = -(msg_a * torch.log(msg_a + 1e-8)).sum() * 0.0
-    entropy_b = -(msg_b * torch.log(msg_b + 1e-8)).sum() * 0.0
-
     return {
         "objective": objective,
         "valid": valid,
@@ -65,7 +81,6 @@ def sample_episode(env, agent_a, agent_b, temperature):
         "useful": useful,
         "logp_a": logp_a,
         "logp_b": logp_b,
-        "entropy": entropy_a + entropy_b,
     }
 
 
