@@ -1,158 +1,194 @@
-# Multi-Agent Trading System with Reinforcement Learning
+# Emergent Trading Language
 
-A sophisticated multi-agent system where neural network agents learn to negotiate and execute trades through learned communication protocols.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-MARL-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![CI](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/ci.yml/badge.svg)](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/ci.yml)
+[![Research Status](https://img.shields.io/badge/research-active-2E8B57)](#current-results)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 🎯 Project Overview
+A research prototype for studying **emergent communication in cooperative multi-agent reinforcement learning**. Two neural agents exchange discrete symbols and negotiate resource trades while holding private inventories and utility preferences.
 
-This project builds autonomous agents that communicate through coded signals and learn to make beneficial trades through reinforcement learning. The baseline for two random agents achieving a valid trade is **18.6%** — our trained agents aim to achieve **3–4x better performance**.
+The central question is not simply whether agents can trade. It is:
 
-## 📊 Project Roadmap & Progress
+> Does communication causally improve coordination when agents possess private information?
 
-### Level 1 — The Trading Room ✅ **DONE**
-**Status:** Complete
+## Why This Project Matters
 
-The foundational environment where agents will interact.
+High trade success alone can be misleading. Agents may discover a fixed safe strategy without using their messages at all. This project therefore evaluates learned agents against communication-control conditions:
 
-**What was built:**
-- `TradingEnv`: Full trading environment with transaction validation
-- Random baseline agents: 18.6% success rate on valid trades
-- Environment metrics and reward calculation
+- **Normal messages**: agents receive the symbols produced by their partner.
+- **Zero messages**: the communication channel is removed.
+- **Random messages**: meaningful symbols are replaced with noise.
+- **Blind random baseline**: offers are sampled without observing the other agent.
 
-**Success criteria met:** ✓ Environment stable and ready for agent training
+A learned protocol is considered useful only when normal-message performance clearly exceeds these controls.
 
----
+## Current Results
 
-### Level 2 — The Agent Brains 🧠 **IN PROGRESS**
-**Status:** Current Focus
+The previous environment produced high valid-trade rates but almost no measurable communication advantage:
 
-The neural network brain that powers each agent with communication and decision-making.
+| Evaluation mode | Efficiency |
+|---|---:|
+| Normal messages | 0.367 |
+| Zero messages | 0.361 |
+| Random messages | 0.365 |
+| Blind random baseline | 0.092 |
 
-**What you will build:**
-- **Neural Network Architecture:**
-  - `speak()`: Encodes trade intent into 4-signal communication protocol
-  - `act()`: Decodes opponent signals and determines trade response
-  
-- **Agent Logic:**
-  - Learns which signal to broadcast to other agents
-  - Learns how to interpret received signals
-  - Develops adaptive trading strategies through self-play
+**Finding:** agents learned a trading policy, but meaningful communication was not proven.
 
-Think of it like a person who can only communicate using 4 hand signals — the brain learns which signal to show and how to interpret signals it receives.
+The latest environment addresses this by:
 
-**Success criteria:**
-- [ ] Run `python agents/agent.py` with no errors
-- [ ] Shapes printed correctly (network architecture validation)
-- [ ] Network wires correctly without training
+- charging agents for resources they give away;
+- accepting only mutually beneficial trades;
+- exposing full private state to the speaker;
+- exposing only preferences and received messages to the actor;
+- training with dense welfare, fairness, and affordability signals;
+- retaining strict message-ablation tests for final evaluation.
 
----
+Fresh experiments are required because these changes alter the environment and model architecture.
 
-### Level 3 — Training 🔒 **LOCKED**
-**Status:** Waiting for Level 2 Completion
+## System Design
 
-End-to-end training pipeline with the environment and agent brains.
+```mermaid
+flowchart LR
+    SA["Agent A private state"] --> SPA["A speaker"]
+    SB["Agent B private state"] --> SPB["B speaker"]
+    SPA -->|"discrete message"| AB["B actor"]
+    SPB -->|"discrete message"| AA["A actor"]
+    UA["A preferences"] --> AA
+    UB["B preferences"] --> AB
+    AA --> OA["Offer requested from B"]
+    AB --> OB["Offer requested from A"]
+    OA --> ENV["Trading environment"]
+    OB --> ENV
+    ENV --> R["Mutual-benefit reward"]
+```
 
----
+Each agent contains two policies:
 
-### Level 4 — Verify Language 🔒 **LOCKED**
-**Status:** Waiting for Level 3 Completion
+1. **Speaker policy**: observes the agent's private inventory and preferences, then emits discrete symbols using straight-through Gumbel-Softmax.
+2. **Actor policy**: observes its own preferences and the partner's message, then samples a discrete resource offer.
 
-Analyze learned communication protocols to understand agent strategies.
+The restricted actor observation creates an information bottleneck: inventory information must travel through the communication channel.
 
----
+## Repository Structure
 
-### Level 5 — Research Analysis 🔒 **LOCKED**
-**Status:** Waiting for Level 4 Completion
+```text
+agents/
+  agent.py              Stochastic speaker and actor neural policies
+analysis/
+  verify.py             Message-ablation tests and visualizations
+  entropy.py            Planned positional entropy analysis
+  probing.py            Planned linear-probe analysis
+  topsim.py             Planned topographic similarity analysis
+  umap_viz.py           Planned representation visualization
+env/
+  trading_env.py        Private-state resource-trading environment
+  baseline.py           Blind random baseline
+training/
+  train.py              Batched policy-gradient training loop
+  curriculum.py         Planned curriculum scheduler
+utils/
+  logger.py             Planned experiment logger
+main.py                 Project entry point
+requirements.txt        Python dependencies
+```
 
-Extract insights and publish findings.
+## Quick Start
 
----
-
-## 🚀 Quick Start
-
-### Installation
+### 1. Clone and create an environment
 
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd Major\ project
-
-# Install dependencies
-pip install -r requirements.txt
+git clone https://github.com/RAUNAK-733/emergent-trading-language.git
+cd emergent-trading-language
+python -m venv .venv
 ```
 
-### Dependencies
-
-- **PyTorch**: Deep learning framework for agent neural networks
-- **NumPy & SciPy**: Numerical computing
-- **scikit-learn**: Machine learning utilities
-- **UMAP**: Dimensionality reduction for analysis
-- **Matplotlib & Seaborn**: Visualization
-- **Weights & Biases (wandb)**: Experiment tracking
-- **editdistance**: String similarity for protocol analysis
-
-### Current Development
+Activate it:
 
 ```bash
-# Test agent brain architecture (Level 2)
-python agents/agent.py
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+
+# macOS/Linux
+source .venv/bin/activate
 ```
 
-## 📁 Project Structure
+### 2. Install dependencies
 
-```
-Major project/
-├── agents/              # Agent implementations
-│   ├── agent.py        # Agent neural network brain
-│   └── ...
-├── training/           # Training pipeline (Level 3)
-├── analysis/           # Analysis tools (Level 4+)
-├── checkpoints/        # Model checkpoints
-├── figures/            # Generated visualizations
-├── utils/              # Utility functions
-├── main.py             # Entry point
-├── requirements.txt    # Python dependencies
-└── README.md           # This file
+```bash
+python -m pip install -r requirements.txt
 ```
 
-## 🎓 How It Works
+### 3. Run the baseline
 
-### Agent Communication Protocol
+```bash
+python main.py baseline
+```
 
-Agents communicate using exactly **4 signals**:
-- Each signal encodes information about: offer amount, willingness to trade, etc.
-- The `speak()` function generates these signals based on agent state
-- The `act()` function interprets opponent signals and decides action
+### 4. Train agents
 
-### Learning Process
+```bash
+python main.py train
+```
 
-1. **Environment**: TradingEnv simulates market conditions and validates trades
-2. **Agent Brain**: Neural network learns to map game state → signals (speak) and signals → actions (act)
-3. **Reward Signal**: Valid trade execution → positive reward; failed trade → negative reward
-4. **Self-Play**: Agents compete against each other to improve strategies
+Training writes model weights and configuration to `checkpoints/`.
 
-### Success Metric
+### 5. Verify communication
 
-- **Baseline**: 18.6% (random agents)
-- **Target**: 55–74% (3–4x improvement)
+```bash
+python main.py verify
+```
 
-## 📝 Status & Updates
+Verification reports normal, zero-message, and random-message performance and creates:
 
-**Current Focus:** Implementing agent neural network architecture (Level 2)
+```text
+figures/communication_controls.png
+figures/symbol_utility_heatmap.png
+figures/symbol_inventory_heatmap.png
+```
 
-This project is **actively maintained** and updated regularly. Check back for progress on each level.
+## Evaluation Metrics
 
-## 🤝 Contributing
+| Metric | Meaning |
+|---|---|
+| Valid trade rate | Fraction of affordable, non-empty, mutually beneficial trades |
+| Useful trade rate | Fraction of trades reaching at least 60% normalized efficiency |
+| Efficiency | Joint net utility divided by estimated optimal joint utility |
+| Language advantage | Normal-message efficiency minus the strongest message-control efficiency |
 
-Contributions welcome! Please coordinate on levels:
-- Completed levels are stable
-- Current level (2) may have rapid changes
-- Locked levels are not ready yet
+The strongest evidence for emergent communication is a repeatable positive language advantage across multiple random seeds.
 
-## 📄 License
+## Research Roadmap
 
-MIT License
+- [x] Private inventory and utility trading environment
+- [x] Blind random baseline
+- [x] Discrete speaker and actor policies
+- [x] Batched policy-gradient training
+- [x] Zero-message and random-message controls
+- [x] Symbol-use heatmaps
+- [ ] Multi-seed experiment runner
+- [ ] Curriculum over resources and message bandwidth
+- [ ] Positional entropy and topographic similarity
+- [ ] Linear probes for message semantics
+- [ ] Generalization to unseen states and larger resource spaces
+- [ ] Noise, vocabulary-size, and message-length ablations
 
----
+## Research Integrity
 
-**Last Updated:** 2026-05-30  
-**Maintained By:** [@your-username]
+This repository intentionally distinguishes:
+
+- successful trading from meaningful communication;
+- training performance from held-out evaluation;
+- interesting patterns from causal evidence;
+- preliminary results from reproducible conclusions.
+
+Negative results are treated as useful findings rather than hidden or overstated.
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, experiment, and pull-request guidance.
+
+## License
+
+Released under the [MIT License](LICENSE).

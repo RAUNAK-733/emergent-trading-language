@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install core test dependency
+        run: python -m pip install numpy
+
+      - name: Compile Python sources
+        run: python -m py_compile agents/agent.py env/trading_env.py env/baseline.py training/train.py analysis/verify.py main.py
+
+      - name: Run core environment tests
+        run: python -m unittest discover -s tests -v
+
