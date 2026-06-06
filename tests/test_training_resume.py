@@ -7,7 +7,7 @@ import unittest
 import torch
 
 from agents.agent import Agent
-from training.train import load_training_state, save_training_state
+from training.train import load_training_state, move_optimizer_to_device, save_training_state
 
 
 class TrainingResumeTests(unittest.TestCase):
@@ -42,6 +42,19 @@ class TrainingResumeTests(unittest.TestCase):
         self.assertEqual(state["temperature"], 0.9)
         self.assertEqual(state["team_baseline"], 0.1)
         self.assertTrue(torch.equal(agent_a.speak_net[0].weight, original))
+
+    def test_optimizer_state_can_move_to_model_device(self):
+        parameter = torch.nn.Parameter(torch.tensor([1.0]))
+        optimizer = torch.optim.Adam([parameter], lr=1e-3)
+        parameter.grad = torch.tensor([1.0])
+        optimizer.step()
+
+        move_optimizer_to_device(optimizer, parameter.device)
+
+        for state in optimizer.state.values():
+            for value in state.values():
+                if torch.is_tensor(value):
+                    self.assertEqual(value.device, parameter.device)
 
 
 if __name__ == "__main__":

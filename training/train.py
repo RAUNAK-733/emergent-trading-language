@@ -52,6 +52,14 @@ def load_training_state(path, agent_a, agent_b, optimizer, config):
     return state
 
 
+def move_optimizer_to_device(optimizer, device):
+    """Move optimizer state tensors after loading a checkpoint on CPU."""
+    for state in optimizer.state.values():
+        for key, value in state.items():
+            if torch.is_tensor(value):
+                state[key] = value.to(device)
+
+
 def optimal_joint_reward(env):
     value_gap = env.util_a - env.util_b
     b_to_a = float(np.dot(env.inv_b, np.maximum(value_gap, 0.0)))
@@ -347,6 +355,7 @@ def train(resume=True, n_updates=25000, config_overrides=None):
             opt,
             config,
         )
+        move_optimizer_to_device(opt, device)
         start_update = int(state["update"]) + 1
         temperature = float(state["temperature"])
         running_team_baseline = float(state["team_baseline"])
