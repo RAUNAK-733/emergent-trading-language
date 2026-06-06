@@ -37,7 +37,7 @@ Each agent has two small neural networks:
 - `speak_net` sees the agent's private state and sends a discrete symbol;
 - `act_net` uses the agent's inventory and the received symbol to choose an offer.
 
-The environment checks whether both agents can afford the trade and whether both benefit from it. Training rewards useful and fair trades while penalising impossible offers.
+The environment checks whether both agents can afford the trade and whether both benefit from it. Training starts with small offers and a simple partner-value signal, then gradually introduces larger offers and the strict mutual-benefit reward used during evaluation.
 
 ## Project structure
 

@@ -28,6 +28,13 @@ def trade_score(env, offer_a, offer_b):
     return 1, float(efficiency), useful
 
 
+def actions_to_offers(give_a_to_b, give_b_to_a):
+    """Convert each actor's give-action into the environment's receive-offers."""
+    offer_a = give_b_to_a
+    offer_b = give_a_to_b
+    return offer_a, offer_b
+
+
 def shaped_objective(env, offer_a, offer_b, success, efficiency):
     """Dense learning signal; final evaluation still uses strict success."""
     overflow_a = np.maximum(offer_a - env.inv_b, 0).sum()
@@ -49,31 +56,81 @@ def shaped_objective(env, offer_a, offer_b, success, efficiency):
     return float(np.clip(objective, -1.0, 1.5))
 
 
-def sample_episode(env, agent_a, agent_b, temperature):
+def curriculum_objectives(env, give_a_to_b, give_b_to_a, strict_objective, progress):
+    """Train each message-action pair, then move to the strict team objective."""
+    scale = env.n_resources * env.max_inventory
+    overflow_a = np.maximum(give_a_to_b - env.inv_a, 0).sum() / scale
+    overflow_b = np.maximum(give_b_to_a - env.inv_b, 0).sum() / scale
+    size_a = float(give_a_to_b.sum())
+    size_b = float(give_b_to_a.sum())
+    alignment_a = float(np.dot(give_a_to_b, env.util_b)) / max(size_a, 1.0)
+    alignment_b = float(np.dot(give_b_to_a, env.util_a)) / max(size_b, 1.0)
+
+    excess_a = max(size_a - 1.0, 0.0) / scale
+    excess_b = max(size_b - 1.0, 0.0) / scale
+    empty_a = 0.25 if size_a == 0 else 0.0
+    empty_b = 0.25 if size_b == 0 else 0.0
+    bootstrap_a_to_b = alignment_a - 0.80 * overflow_a - 0.50 * excess_a - empty_a
+    bootstrap_b_to_a = alignment_b - 0.80 * overflow_b - 0.50 * excess_b - empty_b
+
+    strict_weight = min(1.0, progress / 0.60)
+    objective_a_to_b = (1.0 - strict_weight) * bootstrap_a_to_b
+    objective_b_to_a = (1.0 - strict_weight) * bootstrap_b_to_a
+    objective_a_to_b += strict_weight * strict_objective
+    objective_b_to_a += strict_weight * strict_objective
+    return (
+        float(np.clip(objective_a_to_b, -1.0, 1.5)),
+        float(np.clip(objective_b_to_a, -1.0, 1.5)),
+    )
+
+
+def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
     obs_a_np, obs_b_np = env.reset()
     obs_a = torch.tensor(obs_a_np, dtype=torch.float32).unsqueeze(0)
     obs_b = torch.tensor(obs_b_np, dtype=torch.float32).unsqueeze(0)
 
     msg_a, logp_speak_a = agent_a.speak(obs_a, temperature)
     msg_b, logp_speak_b = agent_b.speak(obs_b, temperature)
-    offer_a_t, logp_act_a = agent_a.act(obs_a, msg_b, temperature)
-    offer_b_t, logp_act_b = agent_b.act(obs_b, msg_a, temperature)
+    offer_limit = min(
+        agent_a.max_offer,
+        1 + int(progress * agent_a.max_offer),
+    )
+    give_a_to_b_t, logp_act_a = agent_a.act(
+        obs_a,
+        msg_b,
+        temperature,
+        offer_limit=offer_limit,
+    )
+    give_b_to_a_t, logp_act_b = agent_b.act(
+        obs_b,
+        msg_a,
+        temperature,
+        offer_limit=offer_limit,
+    )
 
-    offer_a = offer_a_t.squeeze(0).detach().cpu().numpy().astype(int)
-    offer_b = offer_b_t.squeeze(0).detach().cpu().numpy().astype(int)
+    give_a_to_b = give_a_to_b_t.squeeze(0).detach().cpu().numpy().astype(int)
+    give_b_to_a = give_b_to_a_t.squeeze(0).detach().cpu().numpy().astype(int)
+    offer_a, offer_b = actions_to_offers(give_a_to_b, give_b_to_a)
     valid, efficiency, useful = trade_score(env, offer_a, offer_b)
 
-    objective = shaped_objective(env, offer_a, offer_b, valid, efficiency)
+    strict_objective = shaped_objective(env, offer_a, offer_b, valid, efficiency)
+    objective_a_to_b, objective_b_to_a = curriculum_objectives(
+        env,
+        give_a_to_b,
+        give_b_to_a,
+        strict_objective,
+        progress,
+    )
 
-    logp_a = logp_speak_a + logp_act_a
-    logp_b = logp_speak_b + logp_act_b
     return {
-        "objective": objective,
+        "objective": 0.5 * (objective_a_to_b + objective_b_to_a),
+        "objective_a_to_b": objective_a_to_b,
+        "objective_b_to_a": objective_b_to_a,
         "valid": valid,
         "efficiency": efficiency,
         "useful": useful,
-        "logp_a": logp_a,
-        "logp_b": logp_b,
+        "logp_a_to_b": logp_speak_b + logp_act_a,
+        "logp_b_to_a": logp_speak_a + logp_act_b,
     }
 
 
@@ -112,10 +169,11 @@ def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
             elif mode != "normal":
                 raise ValueError(f"Unknown evaluation mode: {mode}")
 
-            offer_a_t, _ = agent_a.act(obs_a, msg_b, deterministic=True)
-            offer_b_t, _ = agent_b.act(obs_b, msg_a, deterministic=True)
-            offer_a = offer_a_t.squeeze(0).cpu().numpy().astype(int)
-            offer_b = offer_b_t.squeeze(0).cpu().numpy().astype(int)
+            give_a_to_b_t, _ = agent_a.act(obs_a, msg_b, deterministic=True)
+            give_b_to_a_t, _ = agent_b.act(obs_b, msg_a, deterministic=True)
+            give_a_to_b = give_a_to_b_t.squeeze(0).cpu().numpy().astype(int)
+            give_b_to_a = give_b_to_a_t.squeeze(0).cpu().numpy().astype(int)
+            offer_a, offer_b = actions_to_offers(give_a_to_b, give_b_to_a)
             valid, efficiency, useful = trade_score(env, offer_a, offer_b)
             valid_log.append(valid)
             useful_log.append(useful)
@@ -172,7 +230,7 @@ def train():
         "batch_size": 64,
         "gumbel_temp": 1.2,
         "temp_anneal": 0.99985,
-        "architecture": "inventory_message_v1",
+        "architecture": "inventory_message_give_v2",
     }
 
     env = TradingEnv(
@@ -204,7 +262,8 @@ def train():
     )
     baseline = random_baseline(config)
     temperature = config["gumbel_temp"]
-    running_baseline = 0.0
+    running_baseline_a_to_b = 0.0
+    running_baseline_b_to_a = 0.0
 
     print("Training started...")
     print(
@@ -213,27 +272,52 @@ def train():
     )
     print(
         f"{'Update':>8} | {'Valid':>8} | {'Useful':>8} | "
-        f"{'Efficiency':>10} | {'No-msg eff':>10} | {'Temp':>6}"
+        f"{'Efficiency':>10} | {'No-msg eff':>10} | {'Offer':>5} | {'Strict':>6}"
     )
-    print("-" * 70)
+    print("-" * 78)
 
     for update in range(1, config["updates"] + 1):
+        progress = update / config["updates"]
         episodes = [
-            sample_episode(env, agent_a, agent_b, temperature)
+            sample_episode(env, agent_a, agent_b, temperature, progress)
             for _ in range(config["batch_size"])
         ]
-        objectives = np.array([ep["objective"] for ep in episodes], dtype=np.float32)
-        running_baseline = 0.95 * running_baseline + 0.05 * float(objectives.mean())
-        advantages = torch.tensor(
-            objectives - running_baseline,
+        objectives_a_to_b = np.array(
+            [ep["objective_a_to_b"] for ep in episodes],
+            dtype=np.float32,
+        )
+        objectives_b_to_a = np.array(
+            [ep["objective_b_to_a"] for ep in episodes],
+            dtype=np.float32,
+        )
+        running_baseline_a_to_b = (
+            0.95 * running_baseline_a_to_b
+            + 0.05 * float(objectives_a_to_b.mean())
+        )
+        running_baseline_b_to_a = (
+            0.95 * running_baseline_b_to_a
+            + 0.05 * float(objectives_b_to_a.mean())
+        )
+        advantages_a_to_b = torch.tensor(
+            objectives_a_to_b - running_baseline_a_to_b,
+            dtype=torch.float32,
+        ).view(-1, 1)
+        advantages_b_to_a = torch.tensor(
+            objectives_b_to_a - running_baseline_b_to_a,
             dtype=torch.float32,
         ).view(-1, 1)
 
-        logps = torch.cat(
-            [ep["logp_a"] + ep["logp_b"] for ep in episodes],
+        logps_a_to_b = torch.cat(
+            [ep["logp_a_to_b"] for ep in episodes],
             dim=0,
         )
-        loss = -(advantages * logps).mean()
+        logps_b_to_a = torch.cat(
+            [ep["logp_b_to_a"] for ep in episodes],
+            dim=0,
+        )
+        loss_a_to_b = -(advantages_a_to_b * logps_a_to_b).mean()
+        loss_b_to_a = -(advantages_b_to_a * logps_b_to_a).mean()
+        loss = loss_a_to_b + loss_b_to_a
 
         opt.zero_grad()
         loss.backward()
@@ -253,7 +337,8 @@ def train():
             print(
                 f"{update:>8} | {valid:>7.1%} | {useful:>7.1%} | "
                 f"{efficiency:>10.3f} | {no_msg['efficiency']:>10.3f} | "
-                f"{temperature:>6.3f}"
+                f"{min(config['max_offer'], 1 + int(progress * config['max_offer'])):>5} | "
+                f"{min(1.0, progress / 0.60):>6.2f}"
             )
 
     os.makedirs("checkpoints", exist_ok=True)

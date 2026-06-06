@@ -69,13 +69,27 @@ class Agent(nn.Module):
 
         return message, log_prob
 
-    def act(self, obs_full, received_msg, temperature=1.0, deterministic=False):
+    def act(
+        self,
+        obs_full,
+        received_msg,
+        temperature=1.0,
+        deterministic=False,
+        offer_limit=None,
+    ):
         inventory = self.extract_inventory(obs_full)
         msg_flat = received_msg.reshape(obs_full.shape[0], -1)
         x = torch.cat([inventory, msg_flat], dim=-1)
         logits = self.act_net(x)
         logits = logits.view(-1, self.n_resources, self.max_offer + 1)
         scaled_logits = logits / max(temperature, 1e-6)
+        if offer_limit is not None:
+            if not 0 <= offer_limit <= self.max_offer:
+                raise ValueError(
+                    f"offer_limit must be between 0 and {self.max_offer}."
+                )
+            values = torch.arange(self.max_offer + 1, device=scaled_logits.device)
+            scaled_logits = scaled_logits.masked_fill(values > offer_limit, -1e9)
 
         if deterministic:
             offer = scaled_logits.argmax(dim=-1)

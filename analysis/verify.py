@@ -15,6 +15,7 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agent import Agent
 from env.trading_env import TradingEnv
+from training.train import actions_to_offers
 
 
 def optimal_joint_reward(env):
@@ -46,7 +47,7 @@ def load_config():
     path = "checkpoints/config.pt"
     if os.path.exists(path):
         default.update(torch.load(path, map_location="cpu"))
-    if default["architecture"] != "inventory_message_v1":
+    if default["architecture"] != "inventory_message_give_v2":
         raise RuntimeError(
             "The saved checkpoints use an older actor architecture. "
             "Run training again before verification."
@@ -109,21 +110,22 @@ def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
             msg_a_used = message_control(msg_a, config, mode)
             msg_b_used = message_control(msg_b, config, mode)
 
-            action_a, _ = agent_a.act(
+            give_a_to_b_t, _ = agent_a.act(
                 obs_a,
                 msg_b_used,
                 temperature=0.1,
                 deterministic=True,
             )
-            action_b, _ = agent_b.act(
+            give_b_to_a_t, _ = agent_b.act(
                 obs_b,
                 msg_a_used,
                 temperature=0.1,
                 deterministic=True,
             )
 
-            offer_a = action_a.squeeze(0).numpy().astype(int)
-            offer_b = action_b.squeeze(0).numpy().astype(int)
+            give_a_to_b = give_a_to_b_t.squeeze(0).numpy().astype(int)
+            give_b_to_a = give_b_to_a_t.squeeze(0).numpy().astype(int)
+            offer_a, offer_b = actions_to_offers(give_a_to_b, give_b_to_a)
             valid, efficiency, useful = score_trade(env, offer_a, offer_b)
             valid_log.append(valid)
             efficiency_log.append(efficiency)

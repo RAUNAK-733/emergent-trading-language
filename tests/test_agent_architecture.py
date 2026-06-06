@@ -50,6 +50,18 @@ class AgentArchitectureTests(unittest.TestCase):
                 deterministic=True,
             )
 
+    def test_offer_limit_masks_larger_actions(self):
+        obs = torch.tensor([[2.0, 4.0, 0.9, 0.1]])
+
+        offer, _ = self.agent.act(
+            obs,
+            self.message,
+            deterministic=False,
+            offer_limit=1,
+        )
+
+        self.assertTrue(torch.all(offer <= 1))
+
 
 if __name__ == "__main__":
     unittest.main()
