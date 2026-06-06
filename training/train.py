@@ -256,7 +256,12 @@ def random_baseline(config, n_episodes=5000):
     }
 
 
-def train(resume=True, config_overrides=None):
+def training_stalled(update, efficiency):
+    """Return whether the update-2000 diagnostic should warn."""
+    return update == 2000 and round(efficiency, 3) == 0
+
+
+def train(resume=True, n_updates=25000, config_overrides=None):
     config = {
         "n_resources": 2,
         "max_inventory": 5,
@@ -265,7 +270,7 @@ def train(resume=True, config_overrides=None):
         "msg_length": 1,
         "hidden_dim": 96,
         "lr": 7e-4,
-        "updates": 12000,
+        "updates": n_updates,
         "batch_size": 64,
         "gumbel_temp": 1.2,
         "temp_anneal": 0.99985,
@@ -275,6 +280,8 @@ def train(resume=True, config_overrides=None):
     }
     if config_overrides:
         config.update(config_overrides)
+    if config["updates"] <= 0:
+        raise ValueError("updates must be a positive integer.")
 
     env = TradingEnv(
         n_resources=config["n_resources"],
@@ -328,10 +335,10 @@ def train(resume=True, config_overrides=None):
         f"useful={baseline['useful']:.1%} | efficiency={baseline['efficiency']:.3f}"
     )
     print(
-        f"{'Update':>8} | {'Valid':>8} | {'Useful':>8} | "
-        f"{'Efficiency':>10} | {'No-msg eff':>10} | {'Offer':>5} | {'Strict':>6}"
+        f"{'Update':>8} | {'Valid':>8} | {'Useful':>8} | {'Efficiency':>10} | "
+        f"{'No-msg':>8} | {'Lang adv':>8} | {'Avg give':>8} | {'Team reward':>11}"
     )
-    print("-" * 78)
+    print("-" * 101)
 
     completed_update = start_update - 1
     try:
@@ -415,25 +422,27 @@ def train(resume=True, config_overrides=None):
             temperature = max(0.25, temperature * config["temp_anneal"])
 
             if update % 500 == 0:
-                valid = np.mean([ep["valid"] for ep in episodes])
-                useful = np.mean([ep["useful"] for ep in episodes])
-                efficiency = np.mean([ep["efficiency"] for ep in episodes])
-                reward_a = np.mean([ep["reward_a"] for ep in episodes])
-                reward_b = np.mean([ep["reward_b"] for ep in episodes])
-                team_reward = np.mean([ep["team_reward"] for ep in episodes])
-                average_give = np.mean([ep["average_give"] for ep in episodes])
+                normal = evaluate(
+                    agent_a,
+                    agent_b,
+                    config,
+                    mode="normal",
+                    n_episodes=800,
+                )
                 no_msg = evaluate(agent_a, agent_b, config, mode="zero", n_episodes=800)
-                collapse = " ZERO-GIVE COLLAPSE" if average_give < 0.10 else ""
-                print(
-                    f"{update:>8} | {valid:>7.1%} | {useful:>7.1%} | "
-                    f"{efficiency:>10.3f} | {no_msg['efficiency']:>10.3f} | "
-                    f"{min(config['max_offer'], 1 + int(progress * config['max_offer'])):>5} | "
-                    f"{min(1.0, progress / 0.60):>6.2f}"
+                language_advantage = normal["efficiency"] - no_msg["efficiency"]
+                collapse = (
+                    " ZERO-GIVE COLLAPSE" if normal["average_give"] < 0.10 else ""
                 )
                 print(
-                    f"         rewards A={reward_a:.3f} B={reward_b:.3f} "
-                    f"team={team_reward:.3f} | avg give={average_give:.3f}{collapse}"
+                    f"{update:>8} | {normal['valid']:>7.1%} | "
+                    f"{normal['useful']:>7.1%} | {normal['efficiency']:>10.3f} | "
+                    f"{no_msg['efficiency']:>8.3f} | {language_advantage:>8.3f} | "
+                    f"{normal['average_give']:>8.3f} | "
+                    f"{normal['team_reward']:>11.3f}{collapse}"
                 )
+                if training_stalled(update, normal["efficiency"]):
+                    print("Warning: training is not learning; check reward signal.")
                 save_training_state(
                     TRAINING_STATE_PATH,
                     agent_a,

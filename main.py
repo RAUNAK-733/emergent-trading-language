@@ -18,6 +18,12 @@ def build_parser():
         action="store_true",
         help="Ignore saved training progress and start a new run.",
     )
+    train_parser.add_argument(
+        "--updates",
+        type=int,
+        default=25000,
+        help="Override the default number of training updates.",
+    )
     subparsers.add_parser("verify", help="Run communication-control verification.")
     return parser
 
@@ -32,7 +38,7 @@ def main():
     elif args.command == "train":
         from training.train import train
 
-        train(resume=not args.fresh)
+        train(resume=not args.fresh, n_updates=args.updates)
     elif args.command == "verify":
         from analysis.verify import verify
 

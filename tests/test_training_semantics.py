@@ -6,7 +6,7 @@ import numpy as np
 
 from agents.agent import Agent
 from env.trading_env import TradingEnv
-from training.train import actions_to_offers, sample_episode
+from training.train import actions_to_offers, sample_episode, training_stalled
 
 
 class TrainingSemanticsTests(unittest.TestCase):
@@ -34,6 +34,11 @@ class TrainingSemanticsTests(unittest.TestCase):
         self.assertIn("logp_agent_a", episode)
         self.assertIn("logp_agent_b", episode)
         self.assertGreaterEqual(episode["average_give"], 0.0)
+
+    def test_stalled_training_warns_only_at_update_2000(self):
+        self.assertTrue(training_stalled(2000, 0.0004))
+        self.assertFalse(training_stalled(2000, 0.001))
+        self.assertFalse(training_stalled(1500, 0.0))
 
 
 if __name__ == "__main__":

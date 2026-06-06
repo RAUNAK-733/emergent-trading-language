@@ -75,6 +75,13 @@ Train a new pair of agents:
 python main.py train --fresh
 ```
 
+Training runs for 25,000 updates by default. Override it when running a larger
+experiment:
+
+```bash
+python main.py train --fresh --updates 50000
+```
+
 Training saves team-reward progress every 500 updates and when interrupted with `Ctrl + C`.
 Run `python main.py train` to resume the saved run.
 
