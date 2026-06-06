@@ -352,17 +352,16 @@ def train(resume=True, n_updates=25000, config_overrides=None):
                 [ep["team_reward"] for ep in episodes],
                 dtype=np.float32,
             )
-            average_team_rewards = 0.5 * team_rewards
             running_team_baseline = (
-                0.95 * running_team_baseline
-                + 0.05 * float(average_team_rewards.mean())
+                0.99 * running_team_baseline
+                + 0.01 * float(team_rewards.mean())
             )
             advantages_agent_a = torch.tensor(
-                average_team_rewards - running_team_baseline,
+                team_rewards - running_team_baseline,
                 dtype=torch.float32,
             ).view(-1, 1)
             advantages_agent_b = torch.tensor(
-                average_team_rewards - running_team_baseline,
+                team_rewards - running_team_baseline,
                 dtype=torch.float32,
             ).view(-1, 1)
 
