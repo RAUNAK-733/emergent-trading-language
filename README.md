@@ -37,7 +37,7 @@ Each agent has two small neural networks:
 - `speak_net` sees the agent's private state and sends a discrete symbol;
 - `act_net` uses the agent's inventory and the received symbol to choose an offer.
 
-The environment checks whether both agents can afford the trade and whether both benefit from it. Training starts with small offers and a simple partner-value signal, then gradually introduces larger offers and the strict mutual-benefit reward used during evaluation.
+The environment checks whether both agents can afford the trade and whether both benefit from it. Because an agent's give action benefits its partner, both agents train from the same cooperative team reward. Training starts with small offers, then gradually introduces larger offers while evaluation keeps the strict mutual-benefit rule.
 
 The speaker is also trained with a small information regularizer. An early auxiliary task rewards messages that help the receiving actor identify which resource the sender values most. This guidance fades out as the strict trading objective takes over.
 
@@ -75,7 +75,7 @@ Train a new pair of agents:
 python main.py train --fresh
 ```
 
-Training saves progress every 500 updates and when interrupted with `Ctrl + C`.
+Training saves team-reward progress every 500 updates and when interrupted with `Ctrl + C`.
 Run `python main.py train` to resume the saved run.
 
 Verify whether the messages help:

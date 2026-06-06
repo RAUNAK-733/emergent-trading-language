@@ -44,10 +44,12 @@ def load_config():
         "hidden_dim": 96,
         "architecture": None,
     }
-    path = "checkpoints/config.pt"
-    if os.path.exists(path):
-        default.update(torch.load(path, map_location="cpu"))
-    if default["architecture"] != "inventory_message_utility_v4":
+    path = "checkpoints/give_based_team_reward.pt"
+    if not os.path.exists(path):
+        raise RuntimeError("Run team-reward training before verification.")
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    default.update(checkpoint["config"])
+    if default["architecture"] != "inventory_message_team_reward_v5":
         raise RuntimeError(
             "The saved checkpoints use an older actor architecture. "
             "Run training again before verification."
@@ -73,8 +75,13 @@ def make_agents(config):
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
     )
-    agent_a.load_state_dict(torch.load("checkpoints/agent_a.pt", map_location="cpu"))
-    agent_b.load_state_dict(torch.load("checkpoints/agent_b.pt", map_location="cpu"))
+    checkpoint = torch.load(
+        "checkpoints/give_based_team_reward.pt",
+        map_location="cpu",
+        weights_only=False,
+    )
+    agent_a.load_state_dict(checkpoint["agent_a"])
+    agent_b.load_state_dict(checkpoint["agent_b"])
     agent_a.eval()
     agent_b.eval()
     return agent_a, agent_b
@@ -96,7 +103,7 @@ def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
         n_resources=config["n_resources"],
         max_inventory=config["max_inventory"],
     )
-    valid_log, efficiency_log, useful_log = [], [], []
+    valid_log, efficiency_log, useful_log, give_log = [], [], [], []
     symbols_sent, utility_vals, inventory_vals = [], [], []
 
     with torch.no_grad():
@@ -130,6 +137,7 @@ def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
             valid_log.append(valid)
             efficiency_log.append(efficiency)
             useful_log.append(useful)
+            give_log.append(float(give_a_to_b.sum()) + float(give_b_to_a.sum()))
 
             if mode == "normal":
                 symbols_sent.append(int(msg_a.squeeze().argmax().item()))
@@ -140,6 +148,7 @@ def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
         "valid": float(np.mean(valid_log)),
         "efficiency": float(np.mean(efficiency_log)),
         "useful": float(np.mean(useful_log)),
+        "average_give": float(np.mean(give_log)),
         "symbols": symbols_sent,
         "utilities": utility_vals,
         "inventories": inventory_vals,
@@ -223,7 +232,8 @@ def verify():
     for name, result in results.items():
         print(
             f"{name:>7} | valid={result['valid']:.1%} | "
-            f"useful={result['useful']:.1%} | efficiency={result['efficiency']:.3f}"
+            f"useful={result['useful']:.1%} | efficiency={result['efficiency']:.3f} | "
+            f"avg give={result['average_give']:.3f}"
         )
     print(f"\nAdvantage over zero message  : {zero_gain:.3f}")
     print(f"Advantage over random message: {random_gain:.3f}")

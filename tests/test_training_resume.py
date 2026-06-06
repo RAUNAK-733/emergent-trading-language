@@ -12,7 +12,7 @@ from training.train import load_training_state, save_training_state
 
 class TrainingResumeTests(unittest.TestCase):
     def test_training_state_round_trip(self):
-        config = {"architecture": "inventory_message_give_v2"}
+        config = {"architecture": "inventory_message_team_reward_v5"}
         agent_a = Agent(4, 4, 1, 2)
         agent_b = Agent(4, 4, 1, 2)
         optimizer = torch.optim.Adam(
@@ -31,8 +31,7 @@ class TrainingResumeTests(unittest.TestCase):
                 config,
                 update=500,
                 temperature=0.9,
-                baseline_a_to_b=0.1,
-                baseline_b_to_a=0.2,
+                team_baseline=0.1,
             )
             with torch.no_grad():
                 agent_a.speak_net[0].weight.zero_()
@@ -41,6 +40,7 @@ class TrainingResumeTests(unittest.TestCase):
 
         self.assertEqual(state["update"], 500)
         self.assertEqual(state["temperature"], 0.9)
+        self.assertEqual(state["team_baseline"], 0.1)
         self.assertTrue(torch.equal(agent_a.speak_net[0].weight, original))
 
 

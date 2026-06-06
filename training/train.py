@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agent import Agent
 from env.trading_env import TradingEnv
 
-TRAINING_STATE_PATH = "checkpoints/training_state.pt"
+TRAINING_STATE_PATH = "checkpoints/give_based_team_reward_state.pt"
+FINAL_CHECKPOINT_PATH = "checkpoints/give_based_team_reward.pt"
 
 
 def save_training_state(
@@ -22,8 +23,7 @@ def save_training_state(
     config,
     update,
     temperature,
-    baseline_a_to_b,
-    baseline_b_to_a,
+    team_baseline,
 ):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(
@@ -34,8 +34,7 @@ def save_training_state(
             "config": config,
             "update": update,
             "temperature": temperature,
-            "baseline_a_to_b": baseline_a_to_b,
-            "baseline_b_to_a": baseline_b_to_a,
+            "team_baseline": team_baseline,
         },
         path,
     )
@@ -63,11 +62,11 @@ def optimal_joint_reward(env):
 def trade_score(env, offer_a, offer_b):
     reward_a, reward_b, success = env.step(offer_a, offer_b)
     if not success:
-        return 0, 0.0, 0.0
-    joint_reward = reward_a + reward_b
-    efficiency = joint_reward / optimal_joint_reward(env)
+        return 0, 0.0, 0, reward_a, reward_b
+    team_reward = reward_a + reward_b
+    efficiency = team_reward / optimal_joint_reward(env)
     useful = int(efficiency >= 0.60)
-    return 1, float(efficiency), useful
+    return 1, float(efficiency), useful, reward_a, reward_b
 
 
 def actions_to_offers(give_a_to_b, give_b_to_a):
@@ -75,55 +74,6 @@ def actions_to_offers(give_a_to_b, give_b_to_a):
     offer_a = give_b_to_a
     offer_b = give_a_to_b
     return offer_a, offer_b
-
-
-def shaped_objective(env, offer_a, offer_b, success, efficiency):
-    """Dense learning signal; final evaluation still uses strict success."""
-    overflow_a = np.maximum(offer_a - env.inv_b, 0).sum()
-    overflow_b = np.maximum(offer_b - env.inv_a, 0).sum()
-    overflow = (overflow_a + overflow_b) / (
-        2 * env.n_resources * env.max_inventory
-    )
-
-    gain_a = float(np.dot(offer_a - offer_b, env.util_a))
-    gain_b = float(np.dot(offer_b - offer_a, env.util_b))
-    scale = optimal_joint_reward(env)
-    welfare = (gain_a + gain_b) / scale
-    fairness = min(gain_a, gain_b) / scale
-    empty_penalty = 0.10 if offer_a.sum() == 0 or offer_b.sum() == 0 else 0.0
-
-    objective = 0.45 * welfare + 0.75 * fairness - 0.60 * overflow - empty_penalty
-    if success:
-        objective += 0.25 + 0.50 * efficiency
-    return float(np.clip(objective, -1.0, 1.5))
-
-
-def curriculum_objectives(env, give_a_to_b, give_b_to_a, strict_objective, progress):
-    """Train each message-action pair, then move to the strict team objective."""
-    scale = env.n_resources * env.max_inventory
-    overflow_a = np.maximum(give_a_to_b - env.inv_a, 0).sum() / scale
-    overflow_b = np.maximum(give_b_to_a - env.inv_b, 0).sum() / scale
-    size_a = float(give_a_to_b.sum())
-    size_b = float(give_b_to_a.sum())
-    alignment_a = float(np.dot(give_a_to_b, env.util_b)) / max(size_a, 1.0)
-    alignment_b = float(np.dot(give_b_to_a, env.util_a)) / max(size_b, 1.0)
-
-    excess_a = max(size_a - 1.0, 0.0) / scale
-    excess_b = max(size_b - 1.0, 0.0) / scale
-    empty_a = 0.25 if size_a == 0 else 0.0
-    empty_b = 0.25 if size_b == 0 else 0.0
-    bootstrap_a_to_b = alignment_a - 0.80 * overflow_a - 0.50 * excess_a - empty_a
-    bootstrap_b_to_a = alignment_b - 0.80 * overflow_b - 0.50 * excess_b - empty_b
-
-    strict_weight = min(1.0, progress / 0.60)
-    objective_a_to_b = (1.0 - strict_weight) * bootstrap_a_to_b
-    objective_b_to_a = (1.0 - strict_weight) * bootstrap_b_to_a
-    objective_a_to_b += strict_weight * strict_objective
-    objective_b_to_a += strict_weight * strict_objective
-    return (
-        float(np.clip(objective_a_to_b, -1.0, 1.5)),
-        float(np.clip(objective_b_to_a, -1.0, 1.5)),
-    )
 
 
 def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
@@ -189,26 +139,20 @@ def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
     give_a_to_b = give_a_to_b_t.squeeze(0).detach().cpu().numpy().astype(int)
     give_b_to_a = give_b_to_a_t.squeeze(0).detach().cpu().numpy().astype(int)
     offer_a, offer_b = actions_to_offers(give_a_to_b, give_b_to_a)
-    valid, efficiency, useful = trade_score(env, offer_a, offer_b)
-
-    strict_objective = shaped_objective(env, offer_a, offer_b, valid, efficiency)
-    objective_a_to_b, objective_b_to_a = curriculum_objectives(
-        env,
-        give_a_to_b,
-        give_b_to_a,
-        strict_objective,
-        progress,
-    )
+    valid, efficiency, useful, reward_a, reward_b = trade_score(env, offer_a, offer_b)
+    team_reward = reward_a + reward_b
+    average_give = float(give_a_to_b.sum()) + float(give_b_to_a.sum())
 
     return {
-        "objective": 0.5 * (objective_a_to_b + objective_b_to_a),
-        "objective_a_to_b": objective_a_to_b,
-        "objective_b_to_a": objective_b_to_a,
         "valid": valid,
         "efficiency": efficiency,
         "useful": useful,
-        "logp_a_to_b": logp_speak_b + logp_act_a,
-        "logp_b_to_a": logp_speak_a + logp_act_b,
+        "reward_a": reward_a,
+        "reward_b": reward_b,
+        "team_reward": team_reward,
+        "average_give": average_give,
+        "logp_agent_a": logp_speak_a + logp_act_a,
+        "logp_agent_b": logp_speak_b + logp_act_b,
         "probs_a": probs_a,
         "probs_b": probs_b,
         "auxiliary_a_to_b": auxiliary_a_to_b,
@@ -222,6 +166,7 @@ def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
         max_inventory=config["max_inventory"],
     )
     valid_log, useful_log, efficiency_log = [], [], []
+    reward_a_log, reward_b_log, team_reward_log, give_log = [], [], [], []
 
     agent_a.eval()
     agent_b.eval()
@@ -256,10 +201,18 @@ def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
             give_a_to_b = give_a_to_b_t.squeeze(0).cpu().numpy().astype(int)
             give_b_to_a = give_b_to_a_t.squeeze(0).cpu().numpy().astype(int)
             offer_a, offer_b = actions_to_offers(give_a_to_b, give_b_to_a)
-            valid, efficiency, useful = trade_score(env, offer_a, offer_b)
+            valid, efficiency, useful, reward_a, reward_b = trade_score(
+                env,
+                offer_a,
+                offer_b,
+            )
             valid_log.append(valid)
             useful_log.append(useful)
             efficiency_log.append(efficiency)
+            reward_a_log.append(reward_a)
+            reward_b_log.append(reward_b)
+            team_reward_log.append(reward_a + reward_b)
+            give_log.append(float(give_a_to_b.sum()) + float(give_b_to_a.sum()))
 
     agent_a.train()
     agent_b.train()
@@ -267,6 +220,10 @@ def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
         "valid": float(np.mean(valid_log)),
         "useful": float(np.mean(useful_log)),
         "efficiency": float(np.mean(efficiency_log)),
+        "reward_a": float(np.mean(reward_a_log)),
+        "reward_b": float(np.mean(reward_b_log)),
+        "team_reward": float(np.mean(team_reward_log)),
+        "average_give": float(np.mean(give_log)),
     }
 
 
@@ -288,7 +245,7 @@ def random_baseline(config, n_episodes=5000):
             config["max_offer"] + 1,
             size=config["n_resources"],
         )
-        valid, efficiency, useful = trade_score(env, offer_a, offer_b)
+        valid, efficiency, useful, _, _ = trade_score(env, offer_a, offer_b)
         valid_log.append(valid)
         useful_log.append(useful)
         efficiency_log.append(efficiency)
@@ -299,7 +256,7 @@ def random_baseline(config, n_episodes=5000):
     }
 
 
-def train(resume=True):
+def train(resume=True, config_overrides=None):
     config = {
         "n_resources": 2,
         "max_inventory": 5,
@@ -314,8 +271,10 @@ def train(resume=True):
         "temp_anneal": 0.99985,
         "message_mi_weight": 0.10,
         "utility_aux_weight": 1.00,
-        "architecture": "inventory_message_utility_v4",
+        "architecture": "inventory_message_team_reward_v5",
     }
+    if config_overrides:
+        config.update(config_overrides)
 
     env = TradingEnv(
         n_resources=config["n_resources"],
@@ -346,8 +305,7 @@ def train(resume=True):
     )
     baseline = random_baseline(config)
     temperature = config["gumbel_temp"]
-    running_baseline_a_to_b = 0.0
-    running_baseline_b_to_a = 0.0
+    running_team_baseline = 0.0
     start_update = 1
 
     if resume and os.path.exists(TRAINING_STATE_PATH):
@@ -360,8 +318,7 @@ def train(resume=True):
         )
         start_update = int(state["update"]) + 1
         temperature = float(state["temperature"])
-        running_baseline_a_to_b = float(state["baseline_a_to_b"])
-        running_baseline_b_to_a = float(state["baseline_b_to_a"])
+        running_team_baseline = float(state["team_baseline"])
         print(f"Resuming training from update {start_update}...")
     else:
         print("Training started...")
@@ -384,41 +341,34 @@ def train(resume=True):
                 sample_episode(env, agent_a, agent_b, temperature, progress)
                 for _ in range(config["batch_size"])
             ]
-            objectives_a_to_b = np.array(
-                [ep["objective_a_to_b"] for ep in episodes],
+            team_rewards = np.array(
+                [ep["team_reward"] for ep in episodes],
                 dtype=np.float32,
             )
-            objectives_b_to_a = np.array(
-                [ep["objective_b_to_a"] for ep in episodes],
-                dtype=np.float32,
+            average_team_rewards = 0.5 * team_rewards
+            running_team_baseline = (
+                0.95 * running_team_baseline
+                + 0.05 * float(average_team_rewards.mean())
             )
-            running_baseline_a_to_b = (
-                0.95 * running_baseline_a_to_b
-                + 0.05 * float(objectives_a_to_b.mean())
-            )
-            running_baseline_b_to_a = (
-                0.95 * running_baseline_b_to_a
-                + 0.05 * float(objectives_b_to_a.mean())
-            )
-            advantages_a_to_b = torch.tensor(
-                objectives_a_to_b - running_baseline_a_to_b,
+            advantages_agent_a = torch.tensor(
+                average_team_rewards - running_team_baseline,
                 dtype=torch.float32,
             ).view(-1, 1)
-            advantages_b_to_a = torch.tensor(
-                objectives_b_to_a - running_baseline_b_to_a,
+            advantages_agent_b = torch.tensor(
+                average_team_rewards - running_team_baseline,
                 dtype=torch.float32,
             ).view(-1, 1)
 
-            logps_a_to_b = torch.cat(
-                [ep["logp_a_to_b"] for ep in episodes],
+            logps_agent_a = torch.cat(
+                [ep["logp_agent_a"] for ep in episodes],
                 dim=0,
             )
-            logps_b_to_a = torch.cat(
-                [ep["logp_b_to_a"] for ep in episodes],
+            logps_agent_b = torch.cat(
+                [ep["logp_agent_b"] for ep in episodes],
                 dim=0,
             )
-            loss_a_to_b = -(advantages_a_to_b * logps_a_to_b).mean()
-            loss_b_to_a = -(advantages_b_to_a * logps_b_to_a).mean()
+            loss_agent_a = -(advantages_agent_a * logps_agent_a).mean()
+            loss_agent_b = -(advantages_agent_b * logps_agent_b).mean()
             probs_a = torch.cat([ep["probs_a"] for ep in episodes], dim=0)
             probs_b = torch.cat([ep["probs_b"] for ep in episodes], dim=0)
             marginal_a = probs_a.mean(dim=0)
@@ -445,7 +395,7 @@ def train(resume=True):
                     for ep in episodes
                 ]
             ).mean()
-            loss = loss_a_to_b + loss_b_to_a
+            loss = loss_agent_a + loss_agent_b
             loss -= message_weight * message_information
             loss += (
                 config["utility_aux_weight"]
@@ -468,12 +418,21 @@ def train(resume=True):
                 valid = np.mean([ep["valid"] for ep in episodes])
                 useful = np.mean([ep["useful"] for ep in episodes])
                 efficiency = np.mean([ep["efficiency"] for ep in episodes])
+                reward_a = np.mean([ep["reward_a"] for ep in episodes])
+                reward_b = np.mean([ep["reward_b"] for ep in episodes])
+                team_reward = np.mean([ep["team_reward"] for ep in episodes])
+                average_give = np.mean([ep["average_give"] for ep in episodes])
                 no_msg = evaluate(agent_a, agent_b, config, mode="zero", n_episodes=800)
+                collapse = " ZERO-GIVE COLLAPSE" if average_give < 0.10 else ""
                 print(
                     f"{update:>8} | {valid:>7.1%} | {useful:>7.1%} | "
                     f"{efficiency:>10.3f} | {no_msg['efficiency']:>10.3f} | "
                     f"{min(config['max_offer'], 1 + int(progress * config['max_offer'])):>5} | "
                     f"{min(1.0, progress / 0.60):>6.2f}"
+                )
+                print(
+                    f"         rewards A={reward_a:.3f} B={reward_b:.3f} "
+                    f"team={team_reward:.3f} | avg give={average_give:.3f}{collapse}"
                 )
                 save_training_state(
                     TRAINING_STATE_PATH,
@@ -483,8 +442,7 @@ def train(resume=True):
                     config,
                     completed_update,
                     temperature,
-                    running_baseline_a_to_b,
-                    running_baseline_b_to_a,
+                    running_team_baseline,
                 )
                 print(f"         Saved progress at update {completed_update}.")
     except KeyboardInterrupt:
@@ -496,17 +454,21 @@ def train(resume=True):
             config,
             completed_update,
             temperature,
-            running_baseline_a_to_b,
-            running_baseline_b_to_a,
+            running_team_baseline,
         )
         print(f"\nTraining interrupted. Progress saved at update {completed_update}.")
         print("Run the same command again to resume.")
         return
 
     os.makedirs("checkpoints", exist_ok=True)
-    torch.save(agent_a.state_dict(), "checkpoints/agent_a.pt")
-    torch.save(agent_b.state_dict(), "checkpoints/agent_b.pt")
-    torch.save(config, "checkpoints/config.pt")
+    torch.save(
+        {
+            "agent_a": agent_a.state_dict(),
+            "agent_b": agent_b.state_dict(),
+            "config": config,
+        },
+        FINAL_CHECKPOINT_PATH,
+    )
 
     normal = evaluate(agent_a, agent_b, config, mode="normal")
     zero = evaluate(agent_a, agent_b, config, mode="zero")
@@ -517,6 +479,10 @@ def train(resume=True):
     print(f"Zero-message efficiency    : {zero['efficiency']:.3f}")
     print(f"Random-message efficiency  : {random_msg['efficiency']:.3f}")
     print(f"Random baseline efficiency : {baseline['efficiency']:.3f}")
+    print(f"Normal reward A            : {normal['reward_a']:.3f}")
+    print(f"Normal reward B            : {normal['reward_b']:.3f}")
+    print(f"Normal team reward         : {normal['team_reward']:.3f}")
+    print(f"Normal average give        : {normal['average_give']:.3f}")
     zero_gain = normal["efficiency"] - zero["efficiency"]
     random_gain = normal["efficiency"] - random_msg["efficiency"]
     print(f"Advantage over zero message: {zero_gain:.3f}")
