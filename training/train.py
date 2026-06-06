@@ -12,9 +12,15 @@ from env.trading_env import TradingEnv
 
 
 def optimal_joint_reward(env):
-    reward_a = float(np.dot(env.inv_b, env.util_a))
-    reward_b = float(np.dot(env.inv_a, env.util_b))
-    return max(reward_a + reward_b, 1e-8)
+    value_gap = env.util_a - env.util_b
+    b_to_a = float(np.dot(env.inv_b, np.maximum(value_gap, 0.0)))
+    a_to_b = float(np.dot(env.inv_a, np.maximum(-value_gap, 0.0)))
+    return max(b_to_a + a_to_b, 1e-8)
+
+
+def actor_observation(obs, n_resources):
+    """Actor sees own preferences; sender message must convey inventory."""
+    return obs[:, n_resources:]
 
 
 def trade_score(env, offer_a, offer_b):
@@ -98,8 +104,10 @@ def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
             elif mode != "normal":
                 raise ValueError(f"Unknown evaluation mode: {mode}")
 
-            offer_a_t, _ = agent_a.act(obs_a, msg_b, deterministic=True)
-            offer_b_t, _ = agent_b.act(obs_b, msg_a, deterministic=True)
+            act_obs_a = actor_observation(obs_a, config["n_resources"])
+            act_obs_b = actor_observation(obs_b, config["n_resources"])
+            offer_a_t, _ = agent_a.act(act_obs_a, msg_b, deterministic=True)
+            offer_b_t, _ = agent_b.act(act_obs_b, msg_a, deterministic=True)
             offer_a = offer_a_t.squeeze(0).cpu().numpy().astype(int)
             offer_b = offer_b_t.squeeze(0).cpu().numpy().astype(int)
             valid, efficiency, useful = trade_score(env, offer_a, offer_b)
@@ -173,6 +181,7 @@ def train():
         config["n_resources"],
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
+        act_obs_dim=config["n_resources"],
     )
     agent_b = Agent(
         obs_dim,
@@ -181,6 +190,7 @@ def train():
         config["n_resources"],
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
+        act_obs_dim=config["n_resources"],
     )
 
     opt = torch.optim.Adam(

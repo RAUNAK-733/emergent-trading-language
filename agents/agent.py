@@ -17,12 +17,14 @@ class Agent(nn.Module):
         n_resources,
         hidden_dim=64,
         max_offer=5,
+        act_obs_dim=None,
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.msg_length = msg_length
         self.n_resources = n_resources
         self.max_offer = max_offer
+        self.act_obs_dim = obs_dim if act_obs_dim is None else act_obs_dim
 
         self.speak_net = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
@@ -31,7 +33,7 @@ class Agent(nn.Module):
         )
 
         self.act_net = nn.Sequential(
-            nn.Linear(obs_dim + msg_length * vocab_size, hidden_dim),
+            nn.Linear(self.act_obs_dim + msg_length * vocab_size, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, n_resources * (max_offer + 1)),
         )

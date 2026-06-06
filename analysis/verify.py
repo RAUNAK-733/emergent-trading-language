@@ -18,9 +18,14 @@ from env.trading_env import TradingEnv
 
 
 def optimal_joint_reward(env):
-    reward_a = float(np.dot(env.inv_b, env.util_a))
-    reward_b = float(np.dot(env.inv_a, env.util_b))
-    return max(reward_a + reward_b, 1e-8)
+    value_gap = env.util_a - env.util_b
+    b_to_a = float(np.dot(env.inv_b, np.maximum(value_gap, 0.0)))
+    a_to_b = float(np.dot(env.inv_a, np.maximum(-value_gap, 0.0)))
+    return max(b_to_a + a_to_b, 1e-8)
+
+
+def actor_observation(obs, n_resources):
+    return obs[:, n_resources:]
 
 
 def score_trade(env, offer_a, offer_b):
@@ -56,6 +61,7 @@ def make_agents(config):
         n_resources=config["n_resources"],
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
+        act_obs_dim=config["n_resources"],
     )
     agent_b = Agent(
         obs_dim,
@@ -64,6 +70,7 @@ def make_agents(config):
         n_resources=config["n_resources"],
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
+        act_obs_dim=config["n_resources"],
     )
     agent_a.load_state_dict(torch.load("checkpoints/agent_a.pt", map_location="cpu"))
     agent_b.load_state_dict(torch.load("checkpoints/agent_b.pt", map_location="cpu"))
@@ -103,13 +110,13 @@ def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
             msg_b_used = message_control(msg_b, config, mode)
 
             action_a, _ = agent_a.act(
-                obs_a,
+                actor_observation(obs_a, config["n_resources"]),
                 msg_b_used,
                 temperature=0.1,
                 deterministic=True,
             )
             action_b, _ = agent_b.act(
-                obs_b,
+                actor_observation(obs_b, config["n_resources"]),
                 msg_a_used,
                 temperature=0.1,
                 deterministic=True,
