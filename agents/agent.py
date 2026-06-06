@@ -83,6 +83,31 @@ class Agent(nn.Module):
         deterministic=False,
         offer_limit=None,
     ):
+        scaled_logits = self.offer_logits(
+            obs_full,
+            received_msg,
+            temperature,
+            offer_limit,
+        )
+
+        if deterministic:
+            offer = scaled_logits.argmax(dim=-1)
+            log_prob = torch.zeros(obs_full.shape[0], 1, device=obs_full.device)
+        else:
+            dist = Categorical(logits=scaled_logits)
+            offer = dist.sample()
+            log_prob = dist.log_prob(offer).sum(dim=-1, keepdim=True)
+
+        return offer.float(), log_prob
+
+    def offer_logits(
+        self,
+        obs_full,
+        received_msg,
+        temperature=1.0,
+        offer_limit=None,
+    ):
+        """Return quantity logits used by the actor for each resource."""
         inventory = self.extract_inventory(obs_full)
         msg_flat = received_msg.reshape(obs_full.shape[0], -1)
         x = torch.cat([inventory, msg_flat], dim=-1)
@@ -96,16 +121,7 @@ class Agent(nn.Module):
                 )
             values = torch.arange(self.max_offer + 1, device=scaled_logits.device)
             scaled_logits = scaled_logits.masked_fill(values > offer_limit, -1e9)
-
-        if deterministic:
-            offer = scaled_logits.argmax(dim=-1)
-            log_prob = torch.zeros(obs_full.shape[0], 1, device=obs_full.device)
-        else:
-            dist = Categorical(logits=scaled_logits)
-            offer = dist.sample()
-            log_prob = dist.log_prob(offer).sum(dim=-1, keepdim=True)
-
-        return offer.float(), log_prob
+        return scaled_logits
 
 
 if __name__ == "__main__":

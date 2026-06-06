@@ -39,7 +39,7 @@ Each agent has two small neural networks:
 
 The environment checks whether both agents can afford the trade and whether both benefit from it. Training starts with small offers and a simple partner-value signal, then gradually introduces larger offers and the strict mutual-benefit reward used during evaluation.
 
-The speaker is also trained with a small information regularizer. It discourages the common failure where every private state is represented by the same symbol, while avoiding purely random messages.
+The speaker is also trained with a small information regularizer. An early auxiliary task rewards messages that help the receiving actor identify which resource the sender values most. This guidance fades out as the strict trading objective takes over.
 
 ## Project structure
 

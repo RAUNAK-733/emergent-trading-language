@@ -47,7 +47,7 @@ def load_config():
     path = "checkpoints/config.pt"
     if os.path.exists(path):
         default.update(torch.load(path, map_location="cpu"))
-    if default["architecture"] != "inventory_message_give_mi_v3":
+    if default["architecture"] != "inventory_message_utility_v4":
         raise RuntimeError(
             "The saved checkpoints use an older actor architecture. "
             "Run training again before verification."

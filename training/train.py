@@ -5,6 +5,7 @@ import sys
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agent import Agent
@@ -150,6 +151,40 @@ def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
         temperature,
         offer_limit=offer_limit,
     )
+    logits_a_to_b = agent_a.offer_logits(
+        obs_a,
+        msg_b,
+        temperature,
+        offer_limit,
+    )
+    logits_b_to_a = agent_b.offer_logits(
+        obs_b,
+        msg_a,
+        temperature,
+        offer_limit,
+    )
+    preferred_by_b = obs_b[:, env.n_resources:].argmax(dim=-1)
+    preferred_by_a = obs_a[:, env.n_resources:].argmax(dim=-1)
+    target_a_to_b = torch.zeros(
+        obs_a.shape[0],
+        env.n_resources,
+        dtype=torch.long,
+    )
+    target_b_to_a = torch.zeros(
+        obs_b.shape[0],
+        env.n_resources,
+        dtype=torch.long,
+    )
+    target_a_to_b.scatter_(1, preferred_by_b.unsqueeze(-1), 1)
+    target_b_to_a.scatter_(1, preferred_by_a.unsqueeze(-1), 1)
+    auxiliary_a_to_b = F.cross_entropy(
+        logits_a_to_b.reshape(-1, agent_a.max_offer + 1),
+        target_a_to_b.reshape(-1),
+    )
+    auxiliary_b_to_a = F.cross_entropy(
+        logits_b_to_a.reshape(-1, agent_b.max_offer + 1),
+        target_b_to_a.reshape(-1),
+    )
 
     give_a_to_b = give_a_to_b_t.squeeze(0).detach().cpu().numpy().astype(int)
     give_b_to_a = give_b_to_a_t.squeeze(0).detach().cpu().numpy().astype(int)
@@ -176,6 +211,8 @@ def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
         "logp_b_to_a": logp_speak_a + logp_act_b,
         "probs_a": probs_a,
         "probs_b": probs_b,
+        "auxiliary_a_to_b": auxiliary_a_to_b,
+        "auxiliary_b_to_a": auxiliary_b_to_a,
     }
 
 
@@ -275,8 +312,9 @@ def train(resume=True):
         "batch_size": 64,
         "gumbel_temp": 1.2,
         "temp_anneal": 0.99985,
-        "message_mi_weight": 0.50,
-        "architecture": "inventory_message_give_mi_v3",
+        "message_mi_weight": 0.10,
+        "utility_aux_weight": 1.00,
+        "architecture": "inventory_message_utility_v4",
     }
 
     env = TradingEnv(
@@ -401,8 +439,19 @@ def train(resume=True):
             )
             strict_weight = min(1.0, progress / 0.60)
             message_weight = config["message_mi_weight"] * (1.0 - 0.90 * strict_weight)
+            auxiliary_loss = torch.stack(
+                [
+                    ep["auxiliary_a_to_b"] + ep["auxiliary_b_to_a"]
+                    for ep in episodes
+                ]
+            ).mean()
             loss = loss_a_to_b + loss_b_to_a
             loss -= message_weight * message_information
+            loss += (
+                config["utility_aux_weight"]
+                * (1.0 - strict_weight)
+                * auxiliary_loss
+            )
 
             opt.zero_grad()
             loss.backward()
