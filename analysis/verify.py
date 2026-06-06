@@ -58,6 +58,7 @@ def load_config():
 
 
 def make_agents(config):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     obs_dim = 2 * config["n_resources"]
     agent_a = Agent(
         obs_dim,
@@ -82,6 +83,8 @@ def make_agents(config):
     )
     agent_a.load_state_dict(checkpoint["agent_a"])
     agent_b.load_state_dict(checkpoint["agent_b"])
+    agent_a.to(device)
+    agent_b.to(device)
     agent_a.eval()
     agent_b.eval()
     return agent_a, agent_b
@@ -99,6 +102,7 @@ def message_control(msg, config, mode):
 
 
 def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
+    device = next(agent_a.parameters()).device
     env = TradingEnv(
         n_resources=config["n_resources"],
         max_inventory=config["max_inventory"],
@@ -109,8 +113,16 @@ def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
     with torch.no_grad():
         for _ in range(n_episodes):
             obs_a_np, obs_b_np = env.reset()
-            obs_a = torch.tensor(obs_a_np, dtype=torch.float32).unsqueeze(0)
-            obs_b = torch.tensor(obs_b_np, dtype=torch.float32).unsqueeze(0)
+            obs_a = torch.tensor(
+                obs_a_np,
+                dtype=torch.float32,
+                device=device,
+            ).unsqueeze(0)
+            obs_b = torch.tensor(
+                obs_b_np,
+                dtype=torch.float32,
+                device=device,
+            ).unsqueeze(0)
 
             msg_a, _ = agent_a.speak(obs_a, temperature=0.1, deterministic=True)
             msg_b, _ = agent_b.speak(obs_b, temperature=0.1, deterministic=True)
@@ -130,8 +142,8 @@ def evaluate_mode(agent_a, agent_b, config, mode, n_episodes=3000):
                 deterministic=True,
             )
 
-            give_a_to_b = give_a_to_b_t.squeeze(0).numpy().astype(int)
-            give_b_to_a = give_b_to_a_t.squeeze(0).numpy().astype(int)
+            give_a_to_b = give_a_to_b_t.squeeze(0).cpu().numpy().astype(int)
+            give_b_to_a = give_b_to_a_t.squeeze(0).cpu().numpy().astype(int)
             offer_a, offer_b = actions_to_offers(give_a_to_b, give_b_to_a)
             valid, efficiency, useful = score_trade(env, offer_a, offer_b)
             valid_log.append(valid)

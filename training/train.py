@@ -76,10 +76,12 @@ def actions_to_offers(give_a_to_b, give_b_to_a):
     return offer_a, offer_b
 
 
-def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
+def sample_episode(env, agent_a, agent_b, temperature, progress=1.0, device=None):
+    if device is None:
+        device = next(agent_a.parameters()).device
     obs_a_np, obs_b_np = env.reset()
-    obs_a = torch.tensor(obs_a_np, dtype=torch.float32).unsqueeze(0)
-    obs_b = torch.tensor(obs_b_np, dtype=torch.float32).unsqueeze(0)
+    obs_a = torch.tensor(obs_a_np, dtype=torch.float32, device=device).unsqueeze(0)
+    obs_b = torch.tensor(obs_b_np, dtype=torch.float32, device=device).unsqueeze(0)
 
     msg_a, logp_speak_a = agent_a.speak(obs_a, temperature)
     msg_b, logp_speak_b = agent_b.speak(obs_b, temperature)
@@ -119,11 +121,13 @@ def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
         obs_a.shape[0],
         env.n_resources,
         dtype=torch.long,
+        device=device,
     )
     target_b_to_a = torch.zeros(
         obs_b.shape[0],
         env.n_resources,
         dtype=torch.long,
+        device=device,
     )
     target_a_to_b.scatter_(1, preferred_by_b.unsqueeze(-1), 1)
     target_b_to_a.scatter_(1, preferred_by_a.unsqueeze(-1), 1)
@@ -161,6 +165,7 @@ def sample_episode(env, agent_a, agent_b, temperature, progress=1.0):
 
 
 def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
+    device = next(agent_a.parameters()).device
     env = TradingEnv(
         n_resources=config["n_resources"],
         max_inventory=config["max_inventory"],
@@ -173,8 +178,16 @@ def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
     with torch.no_grad():
         for _ in range(n_episodes):
             obs_a_np, obs_b_np = env.reset()
-            obs_a = torch.tensor(obs_a_np, dtype=torch.float32).unsqueeze(0)
-            obs_b = torch.tensor(obs_b_np, dtype=torch.float32).unsqueeze(0)
+            obs_a = torch.tensor(
+                obs_a_np,
+                dtype=torch.float32,
+                device=device,
+            ).unsqueeze(0)
+            obs_b = torch.tensor(
+                obs_b_np,
+                dtype=torch.float32,
+                device=device,
+            ).unsqueeze(0)
 
             msg_a, _ = agent_a.speak(obs_a, deterministic=True)
             msg_b, _ = agent_b.speak(obs_b, deterministic=True)
@@ -183,8 +196,16 @@ def evaluate(agent_a, agent_b, config, mode="normal", n_episodes=3000):
                 msg_a = torch.zeros_like(msg_a)
                 msg_b = torch.zeros_like(msg_b)
             elif mode == "random":
-                idx_a = torch.randint(config["vocab_size"], (1, config["msg_length"]))
-                idx_b = torch.randint(config["vocab_size"], (1, config["msg_length"]))
+                idx_a = torch.randint(
+                    config["vocab_size"],
+                    (1, config["msg_length"]),
+                    device=device,
+                )
+                idx_b = torch.randint(
+                    config["vocab_size"],
+                    (1, config["msg_length"]),
+                    device=device,
+                )
                 msg_a = torch.nn.functional.one_hot(
                     idx_a,
                     num_classes=config["vocab_size"],
@@ -282,6 +303,7 @@ def train(resume=True, n_updates=25000, config_overrides=None):
         config.update(config_overrides)
     if config["updates"] <= 0:
         raise ValueError("updates must be a positive integer.")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     env = TradingEnv(
         n_resources=config["n_resources"],
@@ -305,6 +327,8 @@ def train(resume=True, n_updates=25000, config_overrides=None):
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
     )
+    agent_a.to(device)
+    agent_b.to(device)
 
     opt = torch.optim.Adam(
         list(agent_a.parameters()) + list(agent_b.parameters()),
@@ -329,6 +353,9 @@ def train(resume=True, n_updates=25000, config_overrides=None):
         print(f"Resuming training from update {start_update}...")
     else:
         print("Training started...")
+    print(f"Device: {device}")
+    if device.type == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name(device)}")
 
     print(
         f"Random baseline | valid={baseline['valid']:.1%} | "
@@ -345,7 +372,7 @@ def train(resume=True, n_updates=25000, config_overrides=None):
         for update in range(start_update, config["updates"] + 1):
             progress = update / config["updates"]
             episodes = [
-                sample_episode(env, agent_a, agent_b, temperature, progress)
+                sample_episode(env, agent_a, agent_b, temperature, progress, device)
                 for _ in range(config["batch_size"])
             ]
             team_rewards = np.array(
@@ -359,10 +386,12 @@ def train(resume=True, n_updates=25000, config_overrides=None):
             advantages_agent_a = torch.tensor(
                 team_rewards - running_team_baseline,
                 dtype=torch.float32,
+                device=device,
             ).view(-1, 1)
             advantages_agent_b = torch.tensor(
                 team_rewards - running_team_baseline,
                 dtype=torch.float32,
+                device=device,
             ).view(-1, 1)
 
             logps_agent_a = torch.cat(

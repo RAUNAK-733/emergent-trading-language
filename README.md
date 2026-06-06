@@ -63,6 +63,17 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
+On Windows with a compatible NVIDIA GPU, install the CUDA-enabled PyTorch
+build after the other dependencies:
+
+```bash
+python -m pip install --upgrade --force-reinstall torch --index-url https://download.pytorch.org/whl/cu128
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+Training automatically uses CUDA when it is available and prints the selected
+device at startup.
+
 Run the random baseline:
 
 ```bash
