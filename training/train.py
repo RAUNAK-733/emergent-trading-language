@@ -399,8 +399,10 @@ def train(resume=True):
                 - conditional_entropy_a
                 - conditional_entropy_b
             )
+            strict_weight = min(1.0, progress / 0.60)
+            message_weight = config["message_mi_weight"] * (1.0 - 0.90 * strict_weight)
             loss = loss_a_to_b + loss_b_to_a
-            loss -= config["message_mi_weight"] * message_information
+            loss -= message_weight * message_information
 
             opt.zero_grad()
             loss.backward()
