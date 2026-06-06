@@ -1,194 +1,96 @@
 # Emergent Trading Language
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-MARL-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![CI](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/ci.yml/badge.svg)](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/ci.yml)
-[![Research Status](https://img.shields.io/badge/research-active-2E8B57)](#current-results)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![tests](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/ci.yml/badge.svg)](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/ci.yml)
 
-A research prototype for studying **emergent communication in cooperative multi-agent reinforcement learning**. Two neural agents exchange discrete symbols and negotiate resource trades while holding private inventories and utility preferences.
+This is my major project on emergent communication between reinforcement-learning agents.
 
-The central question is not simply whether agents can trade. It is:
+The basic idea is to place two agents in a small trading environment. Each agent has a private inventory and its own preferences for different resources. The agents can send a short discrete message before proposing a trade. I am studying whether they learn to use those messages in a meaningful way.
 
-> Does communication causally improve coordination when agents possess private information?
+## Current progress
 
-## Why This Project Matters
+The following parts are working:
 
-High trade success alone can be misleading. Agents may discover a fixed safe strategy without using their messages at all. This project therefore evaluates learned agents against communication-control conditions:
+- trading environment with private inventories and preferences;
+- random-agent baseline;
+- PyTorch speaker and actor networks;
+- policy-gradient training loop;
+- verification using normal, zero, and random messages;
+- heatmaps for inspecting symbol use.
 
-- **Normal messages**: agents receive the symbols produced by their partner.
-- **Zero messages**: the communication channel is removed.
-- **Random messages**: meaningful symbols are replaced with noise.
-- **Blind random baseline**: offers are sampled without observing the other agent.
+An earlier experiment produced these results:
 
-A learned protocol is considered useful only when normal-message performance clearly exceeds these controls.
-
-## Current Results
-
-The previous environment produced high valid-trade rates but almost no measurable communication advantage:
-
-| Evaluation mode | Efficiency |
+| Test condition | Efficiency |
 |---|---:|
 | Normal messages | 0.367 |
 | Zero messages | 0.361 |
 | Random messages | 0.365 |
-| Blind random baseline | 0.092 |
+| Random baseline | 0.092 |
 
-**Finding:** agents learned a trading policy, but meaningful communication was not proven.
+The trained agents were better than random, but normal messages performed almost the same as zero and random messages. This means the agents learned a trading strategy, but it did not prove that they had learned a useful language.
 
-The latest environment addresses this by:
+I changed the environment after this result. Resources given away now have a cost, trades must benefit both agents, and the actor has limited information so that messages have a real purpose. New experiments are still needed for this version.
 
-- charging agents for resources they give away;
-- accepting only mutually beneficial trades;
-- exposing full private state to the speaker;
-- exposing only preferences and received messages to the actor;
-- training with dense welfare, fairness, and affordability signals;
-- retaining strict message-ablation tests for final evaluation.
+## How the model works
 
-Fresh experiments are required because these changes alter the environment and model architecture.
+Each agent has two small neural networks:
 
-## System Design
+- `speak_net` sees the agent's private state and sends a discrete symbol;
+- `act_net` uses the received symbol and the agent's preferences to choose an offer.
 
-```mermaid
-flowchart LR
-    SA["Agent A private state"] --> SPA["A speaker"]
-    SB["Agent B private state"] --> SPB["B speaker"]
-    SPA -->|"discrete message"| AB["B actor"]
-    SPB -->|"discrete message"| AA["A actor"]
-    UA["A preferences"] --> AA
-    UB["B preferences"] --> AB
-    AA --> OA["Offer requested from B"]
-    AB --> OB["Offer requested from A"]
-    OA --> ENV["Trading environment"]
-    OB --> ENV
-    ENV --> R["Mutual-benefit reward"]
-```
+The environment checks whether both agents can afford the trade and whether both benefit from it. Training rewards useful and fair trades while penalising impossible offers.
 
-Each agent contains two policies:
-
-1. **Speaker policy**: observes the agent's private inventory and preferences, then emits discrete symbols using straight-through Gumbel-Softmax.
-2. **Actor policy**: observes its own preferences and the partner's message, then samples a discrete resource offer.
-
-The restricted actor observation creates an information bottleneck: inventory information must travel through the communication channel.
-
-## Repository Structure
+## Project structure
 
 ```text
-agents/
-  agent.py              Stochastic speaker and actor neural policies
-analysis/
-  verify.py             Message-ablation tests and visualizations
-  entropy.py            Planned positional entropy analysis
-  probing.py            Planned linear-probe analysis
-  topsim.py             Planned topographic similarity analysis
-  umap_viz.py           Planned representation visualization
-env/
-  trading_env.py        Private-state resource-trading environment
-  baseline.py           Blind random baseline
-training/
-  train.py              Batched policy-gradient training loop
-  curriculum.py         Planned curriculum scheduler
-utils/
-  logger.py             Planned experiment logger
-main.py                 Project entry point
-requirements.txt        Python dependencies
+agents/agent.py          agent speaker and actor networks
+env/trading_env.py       trading environment
+env/baseline.py          random-agent baseline
+training/train.py        training loop
+analysis/verify.py       communication checks and plots
+tests/test_trading_env.py
 ```
 
-## Quick Start
+The remaining files in `analysis/`, `training/`, and `utils/` are planned work for later stages of the project.
 
-### 1. Clone and create an environment
+## Running the project
+
+Create a virtual environment and install the dependencies:
 
 ```bash
-git clone https://github.com/RAUNAK-733/emergent-trading-language.git
-cd emergent-trading-language
 python -m venv .venv
-```
-
-Activate it:
-
-```bash
-# Windows PowerShell
-.\.venv\Scripts\Activate.ps1
-
-# macOS/Linux
-source .venv/bin/activate
-```
-
-### 2. Install dependencies
-
-```bash
 python -m pip install -r requirements.txt
 ```
 
-### 3. Run the baseline
+Run the random baseline:
 
 ```bash
 python main.py baseline
 ```
 
-### 4. Train agents
+Train a new pair of agents:
 
 ```bash
 python main.py train
 ```
 
-Training writes model weights and configuration to `checkpoints/`.
-
-### 5. Verify communication
+Verify whether the messages help:
 
 ```bash
 python main.py verify
 ```
 
-Verification reports normal, zero-message, and random-message performance and creates:
+Run the environment tests:
 
-```text
-figures/communication_controls.png
-figures/symbol_utility_heatmap.png
-figures/symbol_inventory_heatmap.png
+```bash
+python -m unittest discover -s tests -v
 ```
 
-## Evaluation Metrics
+## What I am working on next
 
-| Metric | Meaning |
-|---|---|
-| Valid trade rate | Fraction of affordable, non-empty, mutually beneficial trades |
-| Useful trade rate | Fraction of trades reaching at least 60% normalized efficiency |
-| Efficiency | Joint net utility divided by estimated optimal joint utility |
-| Language advantage | Normal-message efficiency minus the strongest message-control efficiency |
+- retrain the agents using the updated environment;
+- run experiments with several random seeds;
+- compare normal messages with shuffled and removed messages;
+- add topographic similarity and entropy analysis;
+- test larger resource spaces and longer messages.
 
-The strongest evidence for emergent communication is a repeatable positive language advantage across multiple random seeds.
-
-## Research Roadmap
-
-- [x] Private inventory and utility trading environment
-- [x] Blind random baseline
-- [x] Discrete speaker and actor policies
-- [x] Batched policy-gradient training
-- [x] Zero-message and random-message controls
-- [x] Symbol-use heatmaps
-- [ ] Multi-seed experiment runner
-- [ ] Curriculum over resources and message bandwidth
-- [ ] Positional entropy and topographic similarity
-- [ ] Linear probes for message semantics
-- [ ] Generalization to unseen states and larger resource spaces
-- [ ] Noise, vocabulary-size, and message-length ablations
-
-## Research Integrity
-
-This repository intentionally distinguishes:
-
-- successful trading from meaningful communication;
-- training performance from held-out evaluation;
-- interesting patterns from causal evidence;
-- preliminary results from reproducible conclusions.
-
-Negative results are treated as useful findings rather than hidden or overstated.
-
-## Contributing
-
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, experiment, and pull-request guidance.
-
-## License
-
-Released under the [MIT License](LICENSE).
+The main goal is not only to achieve successful trades. The goal is to show whether communication itself improves cooperation.
