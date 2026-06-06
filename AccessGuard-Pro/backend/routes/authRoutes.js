@@ -46,6 +46,6 @@ router.post(
   authController.login
 );
 
-router.get("/me", authMiddleware, authController.me);
+router.get("/me", authMiddleware, authController.getMe);
 
 module.exports = router;
