@@ -102,6 +102,19 @@ Verify whether the messages help:
 python main.py verify
 ```
 
+Analyze the learned communication system:
+
+```bash
+python analysis/topsim.py
+python analysis/entropy.py
+python analysis/plot_training.py
+```
+
+Topographic similarity checks whether similar private states produce similar
+messages. Positional entropy measures how actively each message position uses
+the available vocabulary. The training-curve plot compares normal-message
+efficiency with the no-message control over time when JSON logs are available.
+
 Run the environment tests:
 
 ```bash
@@ -113,7 +126,7 @@ python -m unittest discover -s tests -v
 - retrain the agents using the updated environment;
 - run experiments with several random seeds;
 - compare normal messages with shuffled and removed messages;
-- add topographic similarity and entropy analysis;
+- connect persistent JSON training logs to the training-curve plot;
 - test larger resource spaces and longer messages.
 
 The main goal is not only to achieve successful trades. The goal is to show whether communication itself improves cooperation.
