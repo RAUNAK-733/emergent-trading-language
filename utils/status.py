@@ -40,7 +40,8 @@ def print_status(checkpoint_dir="checkpoints"):
         f"Training progress: {status['update']}/{status['target_updates']} "
         f"({status['progress']:.1%})"
     )
-    print(f"Seed             : {status['seed'] if status['seed'] is not None else 'legacy/unknown'}")
+    seed = status["seed"] if status["seed"] is not None else "legacy/unknown"
+    print(f"Seed             : {seed}")
     print(f"Architecture     : {status['architecture']}")
     print(f"Parameters/agent : {status['parameters_per_agent']:,}")
     print(f"JSON log records : {status['training_log_records']}")

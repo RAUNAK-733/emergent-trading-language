@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible defect in training, evaluation, or analysis.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction
+      description: Include the exact command and minimal steps.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Environment
+      description: Include OS, Python, PyTorch, CUDA, and GPU details.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Relevant output
+      render: shell
