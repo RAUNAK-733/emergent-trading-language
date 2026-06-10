@@ -20,8 +20,14 @@ dependencies = [
   "seaborn",
 ]
 
+[project.optional-dependencies]
+dev = ["ruff"]
+
 [project.urls]
 Repository = "https://github.com/RAUNAK-733/emergent-trading-language"
+Issues = "https://github.com/RAUNAK-733/emergent-trading-language/issues"
+Changelog = "https://github.com/RAUNAK-733/emergent-trading-language/blob/master/CHANGELOG.md"
+Documentation = "https://github.com/RAUNAK-733/emergent-trading-language/tree/master/docs"
 
 [tool.setuptools.packages.find]
 include = ["agents*", "analysis*", "env*", "training*", "utils*"]

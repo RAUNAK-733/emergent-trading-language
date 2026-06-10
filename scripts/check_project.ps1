@@ -1,5 +1,7 @@
 $ErrorActionPreference = "Stop"
 
+python -m ruff check .
+
 python -m py_compile `
     agents/agent.py `
     env/trading_env.py `

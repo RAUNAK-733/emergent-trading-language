@@ -1,8 +1,12 @@
 # Emergent Trading Language
 
 [![tests](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/ci.yml/badge.svg)](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/codeql.yml/badge.svg)](https://github.com/RAUNAK-733/emergent-trading-language/actions/workflows/codeql.yml)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-This is my major project on emergent communication between reinforcement-learning agents.
+This research project studies emergent communication between
+reinforcement-learning agents.
 
 The basic idea is to place two agents in a small trading environment. Each agent has a private inventory and its own preferences for different resources. The agents can send a short discrete message before proposing a trade. I am studying whether they learn to use those messages in a meaningful way.
 
@@ -42,12 +46,12 @@ communication helps:
 
 | Test condition | Efficiency |
 |---|---:|
-| Normal messages | 0.191 |
+| Normal messages | 0.197 |
 | Zero messages | 0.000 |
-| Random messages | 0.029 |
+| Random messages | 0.031 |
 
-The minimum language advantage is `+0.162`, although useful trades remain at
-about `6.1%`. This means the learned protocol is functionally important but
+The minimum language advantage is `+0.166`, although useful trades remain at
+about `6.4%`. This means the learned protocol is functionally important but
 still has room to become more efficient and structured. See
 `docs/CURRENT_RESULTS.md` for the full interpretation.
 
@@ -65,24 +69,23 @@ The speaker is also trained with a small information regularizer. An early auxil
 ## Project structure
 
 ```text
-agents/agent.py          agent speaker and actor networks
-env/trading_env.py       trading environment
-env/baseline.py          random-agent baseline
-training/train.py        training loop
-analysis/verify.py       communication checks and plots
-analysis/topsim.py       topographic-similarity analysis
-analysis/entropy.py      positional-entropy analysis
-analysis/plot_training.py training-curve plot
-analysis/probing.py      linear utility probe
-analysis/umap_viz.py     speaker-representation UMAP
-analysis/compare_runs.py multi-seed comparison
+agents/agent.py             agent speaker and actor networks
+env/trading_env.py          trading environment
+env/baseline.py             random-agent baseline
+training/train.py           training loop
+training/curriculum.py      curriculum scheduler
+analysis/verify.py          communication checks and plots
+analysis/topsim.py          topographic-similarity analysis
+analysis/entropy.py         positional-entropy analysis
+analysis/plot_training.py   training-curve plot
+analysis/probing.py         linear utility probe
+analysis/umap_viz.py        speaker-representation UMAP
+analysis/compare_runs.py    multi-seed comparison
 docs/EXPERIMENT_PROTOCOL.md standard evaluation protocol
-docs/ARCHITECTURE.md     information flow and evidence design
-docs/DEMO.md             presentation and experiment commands
-tests/test_trading_env.py
+docs/ARCHITECTURE.md        information flow and evidence design
+docs/DEMO.md                presentation and experiment commands
+tests/                      automated regression tests
 ```
-
-The remaining placeholder analysis modules are planned work for later stages.
 
 ## Running the project
 
@@ -202,6 +205,15 @@ Run the environment tests:
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+## Project Policies
+
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)
+- [Citation](CITATION.cff)
 
 ## What I am working on next
 

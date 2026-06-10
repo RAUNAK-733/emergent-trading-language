@@ -14,7 +14,6 @@ import torch
 import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from agents.agent import Agent
 from env.trading_env import TradingEnv
 from training.train import actions_to_offers
 from utils.checkpoints import load_latest_checkpoint, make_agent

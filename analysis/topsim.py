@@ -64,8 +64,6 @@ def load_agent(checkpoint_dir="checkpoints"):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from utils.checkpoints import load_latest_checkpoint, make_agent
 
-    import torch
-
     checkpoint, _ = load_latest_checkpoint(checkpoint_dir)
     config = checkpoint["config"]
     agent = make_agent(checkpoint)

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support guide
+    url: https://github.com/RAUNAK-733/emergent-trading-language/blob/master/SUPPORT.md
+    about: Read the support checklist before opening an issue.

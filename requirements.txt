@@ -1,9 +1,1 @@
-torch
-numpy
-scipy
-scikit-learn
-umap-learn
-matplotlib
-seaborn
-wandb
-editdistance
+-e .

@@ -537,7 +537,6 @@ def train(
                 - conditional_entropy_a
                 - conditional_entropy_b
             )
-            strict_weight = curriculum.strict_weight(progress)
             message_weight = curriculum.message_weight(
                 config["message_mi_weight"],
                 progress,
@@ -656,10 +655,17 @@ def train(
     random_gain = normal["efficiency"] - random_msg["efficiency"]
     print(f"Advantage over zero message: {zero_gain:.3f}")
     print(f"Advantage over random msg  : {random_gain:.3f}")
-    print(
-        "Result                     : "
-        f"{'STRONGER EVIDENCE' if normal['efficiency'] > max(zero['efficiency'], random_msg['efficiency'], baseline['efficiency']) + 0.05 else 'needs more training/complexity'}"
+    strongest_control = max(
+        zero["efficiency"],
+        random_msg["efficiency"],
+        baseline["efficiency"],
     )
+    result = (
+        "STRONGER EVIDENCE"
+        if normal["efficiency"] > strongest_control + 0.05
+        else "needs more training/complexity"
+    )
+    print(f"Result                     : {result}")
 
 
 if __name__ == "__main__":
