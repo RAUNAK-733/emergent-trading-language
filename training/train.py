@@ -10,9 +10,20 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agent import Agent
 from env.trading_env import TradingEnv
+from utils.checkpoints import FINAL_CHECKPOINT_PATH, TRAINING_STATE_PATH
+from utils.logger import ExperimentLogger
 
-TRAINING_STATE_PATH = "checkpoints/give_based_team_reward_state.pt"
-FINAL_CHECKPOINT_PATH = "checkpoints/give_based_team_reward.pt"
+TRAINING_LOG_PATH = "checkpoints/training_log.json"
+
+
+def atomic_torch_save(data, path):
+    """Write a PyTorch artifact atomically to reduce corruption risk."""
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    temporary_path = f"{path}.tmp"
+    torch.save(data, temporary_path)
+    os.replace(temporary_path, path)
 
 
 def save_training_state(
@@ -25,8 +36,7 @@ def save_training_state(
     temperature,
     team_baseline,
 ):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(
+    atomic_torch_save(
         {
             "agent_a": agent_a.state_dict(),
             "agent_b": agent_b.state_dict(),
@@ -35,6 +45,11 @@ def save_training_state(
             "update": update,
             "temperature": temperature,
             "team_baseline": team_baseline,
+            "numpy_rng_state": np.random.get_state(),
+            "torch_rng_state": torch.get_rng_state(),
+            "cuda_rng_state": torch.cuda.get_rng_state_all()
+            if torch.cuda.is_available()
+            else None,
         },
         path,
     )
@@ -58,6 +73,24 @@ def move_optimizer_to_device(optimizer, device):
         for key, value in state.items():
             if torch.is_tensor(value):
                 state[key] = value.to(device)
+
+
+def restore_rng_state(state):
+    """Restore random streams when resuming a newer checkpoint."""
+    if "numpy_rng_state" in state:
+        np.random.set_state(state["numpy_rng_state"])
+    if "torch_rng_state" in state:
+        torch.set_rng_state(state["torch_rng_state"])
+    if torch.cuda.is_available() and state.get("cuda_rng_state") is not None:
+        torch.cuda.set_rng_state_all(state["cuda_rng_state"])
+
+
+def set_seed(seed):
+    """Seed NumPy and PyTorch for reproducible fresh runs."""
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def optimal_joint_reward(env):
@@ -290,7 +323,7 @@ def training_stalled(update, efficiency):
     return update == 2000 and round(efficiency, 3) == 0
 
 
-def train(resume=True, n_updates=25000, config_overrides=None):
+def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
     config = {
         "n_resources": 2,
         "max_inventory": 5,
@@ -306,12 +339,17 @@ def train(resume=True, n_updates=25000, config_overrides=None):
         "message_mi_weight": 0.10,
         "utility_aux_weight": 1.00,
         "architecture": "inventory_message_team_reward_v5",
+        "seed": seed,
     }
     if config_overrides:
         config.update(config_overrides)
     if config["updates"] <= 0:
         raise ValueError("updates must be a positive integer.")
+    if config["seed"] < 0:
+        raise ValueError("seed must be nonnegative.")
+    set_seed(config["seed"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    experiment_log = ExperimentLogger(TRAINING_LOG_PATH)
 
     env = TradingEnv(
         n_resources=config["n_resources"],
@@ -355,14 +393,28 @@ def train(resume=True, n_updates=25000, config_overrides=None):
             opt,
             config,
         )
+        config["seed"] = state["config"].get("seed", config["seed"])
         move_optimizer_to_device(opt, device)
+        restore_rng_state(state)
         start_update = int(state["update"]) + 1
         temperature = float(state["temperature"])
         running_team_baseline = float(state["team_baseline"])
         print(f"Resuming training from update {start_update}...")
     else:
+        experiment_log.reset()
+        save_training_state(
+            TRAINING_STATE_PATH,
+            agent_a,
+            agent_b,
+            opt,
+            config,
+            update=0,
+            temperature=temperature,
+            team_baseline=running_team_baseline,
+        )
         print("Training started...")
     print(f"Device: {device}")
+    print(f"Seed: {config['seed']}")
     if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(device)}")
 
@@ -480,6 +532,22 @@ def train(resume=True, n_updates=25000, config_overrides=None):
                 )
                 if training_stalled(update, normal["efficiency"]):
                     print("Warning: training is not learning; check reward signal.")
+                experiment_log.append(
+                    {
+                        "update": update,
+                        "valid": normal["valid"],
+                        "useful": normal["useful"],
+                        "efficiency": normal["efficiency"],
+                        "no_msg": no_msg["efficiency"],
+                        "lang_adv": language_advantage,
+                        "average_give": normal["average_give"],
+                        "team_reward": normal["team_reward"],
+                        "reward_a": normal["reward_a"],
+                        "reward_b": normal["reward_b"],
+                        "temperature": temperature,
+                        "random_baseline": baseline["efficiency"],
+                    }
+                )
                 save_training_state(
                     TRAINING_STATE_PATH,
                     agent_a,
@@ -506,8 +574,7 @@ def train(resume=True, n_updates=25000, config_overrides=None):
         print("Run the same command again to resume.")
         return
 
-    os.makedirs("checkpoints", exist_ok=True)
-    torch.save(
+    atomic_torch_save(
         {
             "agent_a": agent_a.state_dict(),
             "agent_b": agent_b.state_dict(),

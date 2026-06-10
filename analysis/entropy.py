@@ -116,12 +116,9 @@ def plot_entropy(entropies, save_path="figures/positional_entropy.png"):
 def load_agent():
     """Load Agent A from the current team-reward checkpoint."""
     from agents.agent import Agent
+    from utils.checkpoints import load_latest_checkpoint
 
-    checkpoint_path = "checkpoints/give_based_team_reward.pt"
-    if not os.path.exists(checkpoint_path):
-        raise RuntimeError("Run training to completion before entropy analysis.")
-
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint, _ = load_latest_checkpoint()
     config = checkpoint["config"]
     agent = Agent(
         obs_dim=2 * config["n_resources"],

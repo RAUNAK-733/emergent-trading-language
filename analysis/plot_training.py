@@ -65,6 +65,7 @@ def plot_training_curve(
     efficiencies = [record["efficiency"] for record in records]
     language_advantages = [record["lang_adv"] for record in records]
     no_message_efficiencies = [record.get("no_msg", 0.0) for record in records]
+    random_baseline = records[-1].get("random_baseline", 0.007)
 
     figure, (efficiency_axis, language_axis) = plt.subplots(
         2,
@@ -88,10 +89,10 @@ def plot_training_curve(
         linewidth=1.5,
     )
     efficiency_axis.axhline(
-        y=0.007,
+        y=random_baseline,
         color="gray",
         linestyle=":",
-        label="Random baseline",
+        label=f"Random baseline ({random_baseline:.3f})",
     )
     efficiency_axis.set_ylabel("Efficiency")
     efficiency_axis.legend()
@@ -125,4 +126,3 @@ def plot_training_curve(
 
 if __name__ == "__main__":
     plot_training_curve()
-    

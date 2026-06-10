@@ -7,7 +7,13 @@ import unittest
 import torch
 
 from agents.agent import Agent
-from training.train import load_training_state, move_optimizer_to_device, save_training_state
+from training.train import (
+    load_training_state,
+    move_optimizer_to_device,
+    restore_rng_state,
+    save_training_state,
+    set_seed,
+)
 
 
 class TrainingResumeTests(unittest.TestCase):
@@ -55,6 +61,24 @@ class TrainingResumeTests(unittest.TestCase):
             for value in state.values():
                 if torch.is_tensor(value):
                     self.assertEqual(value.device, parameter.device)
+
+    def test_rng_state_restores_numpy_and_torch(self):
+        set_seed(17)
+        numpy_state = __import__("numpy").random.get_state()
+        torch_state = torch.get_rng_state()
+        expected_numpy = __import__("numpy").random.random()
+        expected_torch = torch.rand(1)
+
+        restore_rng_state(
+            {
+                "numpy_rng_state": numpy_state,
+                "torch_rng_state": torch_state,
+                "cuda_rng_state": None,
+            }
+        )
+
+        self.assertEqual(__import__("numpy").random.random(), expected_numpy)
+        self.assertTrue(torch.equal(torch.rand(1), expected_torch))
 
 
 if __name__ == "__main__":

@@ -24,7 +24,14 @@ def build_parser():
         default=25000,
         help="Override the default number of training updates.",
     )
+    train_parser.add_argument(
+        "--seed",
+        type=int,
+        default=7,
+        help="Random seed used for a fresh training run.",
+    )
     subparsers.add_parser("verify", help="Run communication-control verification.")
+    subparsers.add_parser("analyze", help="Run all language analyses and plots.")
     return parser
 
 
@@ -38,11 +45,21 @@ def main():
     elif args.command == "train":
         from training.train import train
 
-        train(resume=not args.fresh, n_updates=args.updates)
+        train(resume=not args.fresh, n_updates=args.updates, seed=args.seed)
     elif args.command == "verify":
         from analysis.verify import verify
 
         verify()
+    elif args.command == "analyze":
+        from analysis.entropy import main as entropy
+        from analysis.plot_training import plot_training_curve
+        from analysis.topsim import main as topsim
+        from analysis.verify import verify
+
+        verify()
+        topsim()
+        entropy()
+        plot_training_curve()
 
 
 if __name__ == "__main__":

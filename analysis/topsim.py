@@ -63,14 +63,11 @@ def load_agent():
     """Load Agent A from the current team-reward checkpoint."""
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from agents.agent import Agent
-
-    checkpoint_path = "checkpoints/give_based_team_reward.pt"
-    if not os.path.exists(checkpoint_path):
-        raise RuntimeError("Run training to completion before topographic analysis.")
+    from utils.checkpoints import load_latest_checkpoint
 
     import torch
 
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint, _ = load_latest_checkpoint()
     config = checkpoint["config"]
     agent = Agent(
         obs_dim=2 * config["n_resources"],

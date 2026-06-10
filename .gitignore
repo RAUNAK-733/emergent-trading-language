@@ -43,6 +43,7 @@ wandb/
 checkpoints/*.pth
 checkpoints/*.pt
 checkpoints/*.pickle
+checkpoints/*.json
 
 # Figures (generated)
 figures/*.png
@@ -60,6 +61,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+/debug_test.py
 
 # Unrelated projects kept locally outside this repository's scope
 /AccessGuard-GRC-RBAC-Dashboard/

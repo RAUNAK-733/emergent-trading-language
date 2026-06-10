@@ -15,9 +15,12 @@ The following parts are working:
 - PyTorch speaker and actor networks;
 - policy-gradient training loop;
 - verification using normal, zero, and random messages;
-- heatmaps for inspecting symbol use.
+- heatmaps for inspecting symbol use;
+- persistent JSON training metrics and training-curve plots;
+- reproducible seeded runs and interruption-safe checkpoints.
 
-An earlier experiment produced these results:
+An earlier experiment showed that agents could trade but did not depend on
+language:
 
 | Test condition | Efficiency |
 |---|---:|
@@ -28,7 +31,23 @@ An earlier experiment produced these results:
 
 The trained agents were better than random, but normal messages performed almost the same as zero and random messages. This means the agents learned a trading strategy, but it did not prove that they had learned a useful language.
 
-I changed the environment after this result. Resources given away now have a cost, trades must benefit both agents, and the actor has limited information so that messages have a real purpose. New experiments are still needed for this version.
+I changed the environment after this result. Resources given away now have a
+cost, trades must benefit both agents, and the actor has limited information so
+that messages have a real purpose.
+
+The latest paused team-reward run provides preliminary evidence that
+communication helps:
+
+| Test condition | Efficiency |
+|---|---:|
+| Normal messages | 0.191 |
+| Zero messages | 0.000 |
+| Random messages | 0.029 |
+
+The minimum language advantage is `+0.162`, although useful trades remain at
+about `6.1%`. This means the learned protocol is functionally important but
+still has room to become more efficient and structured. See
+`docs/CURRENT_RESULTS.md` for the full interpretation.
 
 ## How the model works
 
@@ -49,10 +68,14 @@ env/trading_env.py       trading environment
 env/baseline.py          random-agent baseline
 training/train.py        training loop
 analysis/verify.py       communication checks and plots
+analysis/topsim.py       topographic-similarity analysis
+analysis/entropy.py      positional-entropy analysis
+analysis/plot_training.py training-curve plot
+docs/EXPERIMENT_PROTOCOL.md standard evaluation protocol
 tests/test_trading_env.py
 ```
 
-The remaining files in `analysis/`, `training/`, and `utils/` are planned work for later stages of the project.
+The remaining placeholder analysis modules are planned work for later stages.
 
 ## Running the project
 
@@ -93,7 +116,14 @@ experiment:
 python main.py train --fresh --updates 50000
 ```
 
-Training saves team-reward progress every 500 updates and when interrupted with `Ctrl + C`.
+Use a different seed for a repeat experiment:
+
+```bash
+python main.py train --fresh --seed 42
+```
+
+Training saves team-reward progress and JSON metrics every 500 updates, and
+saves progress when interrupted with `Ctrl + C`.
 Run `python main.py train` to resume the saved run.
 
 Verify whether the messages help:
@@ -115,6 +145,14 @@ messages. Positional entropy measures how actively each message position uses
 the available vocabulary. The training-curve plot compares normal-message
 efficiency with the no-message control over time when JSON logs are available.
 
+Run the full verification and analysis workflow:
+
+```bash
+python main.py analyze
+```
+
+See `docs/EXPERIMENT_PROTOCOL.md` for the standard evidence and reporting rules.
+
 Run the environment tests:
 
 ```bash
@@ -126,7 +164,7 @@ python -m unittest discover -s tests -v
 - retrain the agents using the updated environment;
 - run experiments with several random seeds;
 - compare normal messages with shuffled and removed messages;
-- connect persistent JSON training logs to the training-curve plot;
+- compare results across several random seeds;
 - test larger resource spaces and longer messages.
 
 The main goal is not only to achieve successful trades. The goal is to show whether communication itself improves cooperation.

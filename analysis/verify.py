@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agent import Agent
 from env.trading_env import TradingEnv
 from training.train import actions_to_offers
+from utils.checkpoints import load_latest_checkpoint
 
 
 def optimal_joint_reward(env):
@@ -44,10 +45,7 @@ def load_config():
         "hidden_dim": 96,
         "architecture": None,
     }
-    path = "checkpoints/give_based_team_reward.pt"
-    if not os.path.exists(path):
-        raise RuntimeError("Run team-reward training before verification.")
-    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    checkpoint, _ = load_latest_checkpoint()
     default.update(checkpoint["config"])
     if default["architecture"] != "inventory_message_team_reward_v5":
         raise RuntimeError(
@@ -76,11 +74,7 @@ def make_agents(config):
         hidden_dim=config["hidden_dim"],
         max_offer=config["max_offer"],
     )
-    checkpoint = torch.load(
-        "checkpoints/give_based_team_reward.pt",
-        map_location="cpu",
-        weights_only=False,
-    )
+    checkpoint, _ = load_latest_checkpoint()
     agent_a.load_state_dict(checkpoint["agent_a"])
     agent_b.load_state_dict(checkpoint["agent_b"])
     agent_a.to(device)
@@ -96,7 +90,11 @@ def message_control(msg, config, mode):
     if mode == "zero":
         return torch.zeros_like(msg)
     if mode == "random":
-        idx = torch.randint(config["vocab_size"], (msg.shape[0], config["msg_length"]))
+        idx = torch.randint(
+            config["vocab_size"],
+            (msg.shape[0], config["msg_length"]),
+            device=msg.device,
+        )
         return F.one_hot(idx, num_classes=config["vocab_size"]).float()
     raise ValueError(f"Unknown mode: {mode}")
 
@@ -218,8 +216,10 @@ def plot_control_bars(results):
 
 def verify():
     os.makedirs("figures", exist_ok=True)
+    _, checkpoint_path = load_latest_checkpoint()
     config = load_config()
     agent_a, agent_b = make_agents(config)
+    print(f"Checkpoint: {checkpoint_path}")
 
     results = {
         "normal": evaluate_mode(agent_a, agent_b, config, "normal"),
