@@ -18,10 +18,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install test dependencies
-        run: python -m pip install numpy torch scipy matplotlib seaborn
+        run: python -m pip install numpy torch scipy matplotlib seaborn scikit-learn umap-learn
 
       - name: Compile Python sources
-        run: python -m py_compile agents/agent.py env/trading_env.py env/baseline.py training/train.py analysis/verify.py analysis/topsim.py analysis/entropy.py analysis/plot_training.py utils/checkpoints.py utils/logger.py main.py
+        run: python -m py_compile agents/agent.py env/trading_env.py env/baseline.py training/train.py training/curriculum.py analysis/verify.py analysis/topsim.py analysis/entropy.py analysis/plot_training.py analysis/probing.py analysis/umap_viz.py analysis/compare_runs.py utils/checkpoints.py utils/logger.py utils/status.py main.py
 
       - name: Run core environment tests
         run: python -m unittest discover -s tests -v

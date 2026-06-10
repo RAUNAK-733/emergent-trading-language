@@ -113,31 +113,21 @@ def plot_entropy(entropies, save_path="figures/positional_entropy.png"):
     print(f"Saved -> {save_path}")
 
 
-def load_agent():
+def load_agent(checkpoint_dir="checkpoints"):
     """Load Agent A from the current team-reward checkpoint."""
-    from agents.agent import Agent
-    from utils.checkpoints import load_latest_checkpoint
+    from utils.checkpoints import load_latest_checkpoint, make_agent
 
-    checkpoint, _ = load_latest_checkpoint()
+    checkpoint, _ = load_latest_checkpoint(checkpoint_dir)
     config = checkpoint["config"]
-    agent = Agent(
-        obs_dim=2 * config["n_resources"],
-        vocab_size=config["vocab_size"],
-        msg_length=config["msg_length"],
-        n_resources=config["n_resources"],
-        hidden_dim=config["hidden_dim"],
-        max_offer=config["max_offer"],
-    )
-    agent.load_state_dict(checkpoint["agent_a"])
-    agent.eval()
+    agent = make_agent(checkpoint)
     return agent, config
 
 
-def main():
+def main(checkpoint_dir="checkpoints", figure_dir="figures"):
     """Sample deterministic messages and report positional entropy."""
     from env.trading_env import TradingEnv
 
-    agent_a, config = load_agent()
+    agent_a, config = load_agent(checkpoint_dir)
     env = TradingEnv(
         n_resources=config["n_resources"],
         max_inventory=config["max_inventory"],
@@ -170,9 +160,10 @@ def main():
             f"({entry['usage_ratio']:.0%} of max) - {entry['status']}"
         )
 
-    plot_entropy(results)
+    plot_entropy(results, os.path.join(figure_dir, "positional_entropy.png"))
     print("\nIf usage > 50%, the position actively distinguishes meanings.")
     print("Active positions are evidence of symbol use, not proof of grammar by themselves.")
+    return results
 
 
 if __name__ == "__main__":

@@ -17,7 +17,9 @@ The following parts are working:
 - verification using normal, zero, and random messages;
 - heatmaps for inspecting symbol use;
 - persistent JSON training metrics and training-curve plots;
-- reproducible seeded runs and interruption-safe checkpoints.
+- reproducible seeded runs and interruption-safe checkpoints;
+- linear probing and UMAP representation analysis;
+- isolated run directories and multi-seed comparison tooling.
 
 An earlier experiment showed that agents could trade but did not depend on
 language:
@@ -71,7 +73,12 @@ analysis/verify.py       communication checks and plots
 analysis/topsim.py       topographic-similarity analysis
 analysis/entropy.py      positional-entropy analysis
 analysis/plot_training.py training-curve plot
+analysis/probing.py      linear utility probe
+analysis/umap_viz.py     speaker-representation UMAP
+analysis/compare_runs.py multi-seed comparison
 docs/EXPERIMENT_PROTOCOL.md standard evaluation protocol
+docs/ARCHITECTURE.md     information flow and evidence design
+docs/DEMO.md             presentation and experiment commands
 tests/test_trading_env.py
 ```
 
@@ -109,6 +116,13 @@ Train a new pair of agents:
 python main.py train --fresh
 ```
 
+Use an isolated directory when running experiments that must not overwrite one
+another:
+
+```bash
+python main.py train --fresh --seed 7 --run-dir runs/seed-7
+```
+
 Training runs for 25,000 updates by default. Override it when running a larger
 experiment:
 
@@ -125,6 +139,12 @@ python main.py train --fresh --seed 42
 Training saves team-reward progress and JSON metrics every 500 updates, and
 saves progress when interrupted with `Ctrl + C`.
 Run `python main.py train` to resume the saved run.
+
+Inspect the current checkpoint:
+
+```bash
+python main.py status
+```
 
 Verify whether the messages help:
 
@@ -151,7 +171,31 @@ Run the full verification and analysis workflow:
 python main.py analyze
 ```
 
+This generates strict controls, heatmaps, topographic similarity, positional
+entropy, a linear utility probe, UMAP representation plots, and a training
+curve.
+
+Compare several completed seed runs:
+
+```bash
+python main.py compare --runs runs/seed-7 runs/seed-17 runs/seed-42
+```
+
 See `docs/EXPERIMENT_PROTOCOL.md` for the standard evidence and reporting rules.
+See `docs/ARCHITECTURE.md` for the information-flow design and `docs/DEMO.md`
+for a concise presentation workflow.
+
+On Windows, run all reliability checks with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check_project.ps1
+```
+
+Run the standard three-seed experiment with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_seed_sweep.ps1
+```
 
 Run the environment tests:
 
@@ -161,10 +205,9 @@ python -m unittest discover -s tests -v
 
 ## What I am working on next
 
-- retrain the agents using the updated environment;
+- finish the current team-reward training run;
 - run experiments with several random seeds;
 - compare normal messages with shuffled and removed messages;
-- compare results across several random seeds;
 - test larger resource spaces and longer messages.
 
 The main goal is not only to achieve successful trades. The goal is to show whether communication itself improves cooperation.

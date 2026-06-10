@@ -2,6 +2,7 @@
 
 import os
 import sys
+import json
 
 import matplotlib
 
@@ -16,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agent import Agent
 from env.trading_env import TradingEnv
 from training.train import actions_to_offers
-from utils.checkpoints import load_latest_checkpoint
+from utils.checkpoints import load_latest_checkpoint, make_agent
 
 
 def optimal_joint_reward(env):
@@ -35,7 +36,7 @@ def score_trade(env, offer_a, offer_b):
     return 1, float(efficiency), useful
 
 
-def load_config():
+def load_config(checkpoint_dir="checkpoints"):
     default = {
         "n_resources": 2,
         "max_inventory": 5,
@@ -45,7 +46,7 @@ def load_config():
         "hidden_dim": 96,
         "architecture": None,
     }
-    checkpoint, _ = load_latest_checkpoint()
+    checkpoint, _ = load_latest_checkpoint(checkpoint_dir)
     default.update(checkpoint["config"])
     if default["architecture"] != "inventory_message_team_reward_v5":
         raise RuntimeError(
@@ -55,32 +56,11 @@ def load_config():
     return default
 
 
-def make_agents(config):
+def make_agents(config, checkpoint_dir="checkpoints"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    obs_dim = 2 * config["n_resources"]
-    agent_a = Agent(
-        obs_dim,
-        vocab_size=config["vocab_size"],
-        msg_length=config["msg_length"],
-        n_resources=config["n_resources"],
-        hidden_dim=config["hidden_dim"],
-        max_offer=config["max_offer"],
-    )
-    agent_b = Agent(
-        obs_dim,
-        vocab_size=config["vocab_size"],
-        msg_length=config["msg_length"],
-        n_resources=config["n_resources"],
-        hidden_dim=config["hidden_dim"],
-        max_offer=config["max_offer"],
-    )
-    checkpoint, _ = load_latest_checkpoint()
-    agent_a.load_state_dict(checkpoint["agent_a"])
-    agent_b.load_state_dict(checkpoint["agent_b"])
-    agent_a.to(device)
-    agent_b.to(device)
-    agent_a.eval()
-    agent_b.eval()
+    checkpoint, _ = load_latest_checkpoint(checkpoint_dir)
+    agent_a = make_agent(checkpoint, "agent_a", device)
+    agent_b = make_agent(checkpoint, "agent_b", device)
     return agent_a, agent_b
 
 
@@ -194,7 +174,7 @@ def plot_symbol_heatmap(symbols, values, title, xlabel, filename, vocab_size):
     plt.close()
 
 
-def plot_control_bars(results):
+def plot_control_bars(results, save_path="figures/communication_controls.png"):
     labels = list(results.keys())
     efficiencies = [results[label]["efficiency"] for label in labels]
     useful = [results[label]["useful"] for label in labels]
@@ -210,21 +190,21 @@ def plot_control_bars(results):
     plt.title("Communication controls")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("figures/communication_controls.png", dpi=150)
+    plt.savefig(save_path, dpi=150)
     plt.close()
 
 
-def verify():
-    os.makedirs("figures", exist_ok=True)
-    _, checkpoint_path = load_latest_checkpoint()
-    config = load_config()
-    agent_a, agent_b = make_agents(config)
+def verify(checkpoint_dir="checkpoints", figure_dir="figures", n_episodes=3000):
+    os.makedirs(figure_dir, exist_ok=True)
+    checkpoint, checkpoint_path = load_latest_checkpoint(checkpoint_dir)
+    config = load_config(checkpoint_dir)
+    agent_a, agent_b = make_agents(config, checkpoint_dir)
     print(f"Checkpoint: {checkpoint_path}")
 
     results = {
-        "normal": evaluate_mode(agent_a, agent_b, config, "normal"),
-        "zero": evaluate_mode(agent_a, agent_b, config, "zero"),
-        "random": evaluate_mode(agent_a, agent_b, config, "random"),
+        "normal": evaluate_mode(agent_a, agent_b, config, "normal", n_episodes),
+        "zero": evaluate_mode(agent_a, agent_b, config, "zero", n_episodes),
+        "random": evaluate_mode(agent_a, agent_b, config, "random", n_episodes),
     }
 
     zero_gain = results["normal"]["efficiency"] - results["zero"]["efficiency"]
@@ -260,7 +240,7 @@ def verify():
         normal["utilities"],
         "Agent A symbol vs utility for resource 0",
         "Agent A utility for resource 0",
-        "figures/symbol_utility_heatmap.png",
+        os.path.join(figure_dir, "symbol_utility_heatmap.png"),
         config["vocab_size"],
     )
     scaled_inventory = [
@@ -272,15 +252,44 @@ def verify():
         scaled_inventory,
         "Agent A symbol vs inventory for resource 0",
         "Agent A inventory for resource 0",
-        "figures/symbol_inventory_heatmap.png",
+        os.path.join(figure_dir, "symbol_inventory_heatmap.png"),
         config["vocab_size"],
     )
-    plot_control_bars(results)
+    plot_control_bars(
+        results,
+        os.path.join(figure_dir, "communication_controls.png"),
+    )
+
+    report = {
+        "checkpoint": checkpoint_path,
+        "update": int(checkpoint.get("update", config.get("updates", 0))),
+        "seed": config.get("seed"),
+        "results": {
+            name: {
+                key: value
+                for key, value in result.items()
+                if key not in {"symbols", "utilities", "inventories"}
+            }
+            for name, result in results.items()
+        },
+        "advantage_over_zero": zero_gain,
+        "advantage_over_random": random_gain,
+        "minimum_language_advantage": language_gain,
+        "symbol_counts": symbol_counts.tolist(),
+        "symbol_entropy_bits": symbol_entropy,
+        "communication_helps": strong,
+    }
+    report_path = os.path.join(figure_dir, "verification_results.json")
+    with open(report_path, "w", encoding="utf-8") as file:
+        json.dump(report, file, indent=2)
+        file.write("\n")
 
     print("\nSaved figures:")
-    print("figures/symbol_utility_heatmap.png")
-    print("figures/symbol_inventory_heatmap.png")
-    print("figures/communication_controls.png")
+    print(os.path.join(figure_dir, "symbol_utility_heatmap.png"))
+    print(os.path.join(figure_dir, "symbol_inventory_heatmap.png"))
+    print(os.path.join(figure_dir, "communication_controls.png"))
+    print(report_path)
+    return report
 
 
 if __name__ == "__main__":

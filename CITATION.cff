@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: Emergent Trading Language
+message: If you use this project, please cite it using this metadata.
+type: software
+authors:
+  - name: RAUNAK-733
+repository-code: https://github.com/RAUNAK-733/emergent-trading-language
+license: MIT
+abstract: A cooperative multi-agent reinforcement-learning experiment studying emergent discrete communication during resource trading.

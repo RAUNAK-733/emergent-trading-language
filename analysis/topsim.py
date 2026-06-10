@@ -51,7 +51,7 @@ def topographic_similarity(meanings, messages):
 def interpret(score):
     """Describe the strength of the measured language structure."""
     if score > 0.4:
-        return "STRONG - compositional language emerged"
+        return "STRONG - message space has clear topographic structure"
     if score > 0.2:
         return "MODERATE - some structure present"
     if score > 0.05:
@@ -59,37 +59,27 @@ def interpret(score):
     return "NONE - random babbling"
 
 
-def load_agent():
+def load_agent(checkpoint_dir="checkpoints"):
     """Load Agent A from the current team-reward checkpoint."""
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from agents.agent import Agent
-    from utils.checkpoints import load_latest_checkpoint
+    from utils.checkpoints import load_latest_checkpoint, make_agent
 
     import torch
 
-    checkpoint, _ = load_latest_checkpoint()
+    checkpoint, _ = load_latest_checkpoint(checkpoint_dir)
     config = checkpoint["config"]
-    agent = Agent(
-        obs_dim=2 * config["n_resources"],
-        vocab_size=config["vocab_size"],
-        msg_length=config["msg_length"],
-        n_resources=config["n_resources"],
-        hidden_dim=config["hidden_dim"],
-        max_offer=config["max_offer"],
-    )
-    agent.load_state_dict(checkpoint["agent_a"])
-    agent.eval()
+    agent = make_agent(checkpoint)
     return agent, config
 
 
-def main():
+def main(checkpoint_dir="checkpoints"):
     """Sample meanings and messages, then print their topographic similarity."""
     import torch
 
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from env.trading_env import TradingEnv
 
-    agent_a, config = load_agent()
+    agent_a, config = load_agent(checkpoint_dir)
     env = TradingEnv(
         n_resources=config["n_resources"],
         max_inventory=config["max_inventory"],
@@ -115,6 +105,7 @@ def main():
     print(f"Topsim score : {score:.4f}")
     print(f"P-value      : {pvalue:.4f}")
     print(f"Result       : {interpret(score)}")
+    return {"score": score, "pvalue": pvalue, "interpretation": interpret(score)}
 
 
 if __name__ == "__main__":

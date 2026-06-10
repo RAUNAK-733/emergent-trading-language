@@ -44,11 +44,13 @@ checkpoints/*.pth
 checkpoints/*.pt
 checkpoints/*.pickle
 checkpoints/*.json
+/runs/
 
 # Figures (generated)
 figures/*.png
 figures/*.pdf
 figures/*.jpg
+figures/*.json
 
 # Cache
 .cache/

@@ -10,11 +10,9 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agent import Agent
 from env.trading_env import TradingEnv
-from utils.checkpoints import FINAL_CHECKPOINT_PATH, TRAINING_STATE_PATH
+from training.curriculum import CurriculumScheduler
+from utils.checkpoints import checkpoint_paths
 from utils.logger import ExperimentLogger
-
-TRAINING_LOG_PATH = "checkpoints/training_log.json"
-
 
 def atomic_torch_save(data, path):
     """Write a PyTorch artifact atomically to reduce corruption risk."""
@@ -117,7 +115,15 @@ def actions_to_offers(give_a_to_b, give_b_to_a):
     return offer_a, offer_b
 
 
-def sample_episode(env, agent_a, agent_b, temperature, progress=1.0, device=None):
+def sample_episode(
+    env,
+    agent_a,
+    agent_b,
+    temperature,
+    progress=1.0,
+    device=None,
+    offer_limit=None,
+):
     if device is None:
         device = next(agent_a.parameters()).device
     obs_a_np, obs_b_np = env.reset()
@@ -128,10 +134,11 @@ def sample_episode(env, agent_a, agent_b, temperature, progress=1.0, device=None
     msg_b, logp_speak_b = agent_b.speak(obs_b, temperature)
     probs_a = agent_a.message_probabilities(obs_a, temperature)
     probs_b = agent_b.message_probabilities(obs_b, temperature)
-    offer_limit = min(
-        agent_a.max_offer,
-        1 + int(progress * agent_a.max_offer),
-    )
+    if offer_limit is None:
+        offer_limit = min(
+            agent_a.max_offer,
+            1 + int(progress * agent_a.max_offer),
+        )
     give_a_to_b_t, logp_act_a = agent_a.act(
         obs_a,
         msg_b,
@@ -323,7 +330,39 @@ def training_stalled(update, efficiency):
     return update == 2000 and round(efficiency, 3) == 0
 
 
-def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
+def validate_config(config):
+    """Validate the core experiment configuration before allocating models."""
+    positive_integers = [
+        "n_resources",
+        "max_inventory",
+        "max_offer",
+        "vocab_size",
+        "msg_length",
+        "hidden_dim",
+        "updates",
+        "batch_size",
+    ]
+    for key in positive_integers:
+        if not isinstance(config[key], int) or config[key] <= 0:
+            raise ValueError(f"{key} must be a positive integer.")
+    if config["vocab_size"] < 2:
+        raise ValueError("vocab_size must be at least 2.")
+    if config["lr"] <= 0:
+        raise ValueError("lr must be positive.")
+    if config["gumbel_temp"] <= 0 or not 0 < config["temp_anneal"] <= 1:
+        raise ValueError("temperature settings are invalid.")
+    if config["seed"] is not None and config["seed"] < 0:
+        raise ValueError("seed must be nonnegative.")
+
+
+def train(
+    resume=True,
+    n_updates=None,
+    seed=7,
+    checkpoint_dir="checkpoints",
+    config_overrides=None,
+):
+    paths = checkpoint_paths(checkpoint_dir)
     config = {
         "n_resources": 2,
         "max_inventory": 5,
@@ -332,7 +371,7 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
         "msg_length": 1,
         "hidden_dim": 96,
         "lr": 7e-4,
-        "updates": n_updates,
+        "updates": 25000 if n_updates is None else n_updates,
         "batch_size": 64,
         "gumbel_temp": 1.2,
         "temp_anneal": 0.99985,
@@ -341,15 +380,21 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
         "architecture": "inventory_message_team_reward_v5",
         "seed": seed,
     }
+    if resume and os.path.exists(paths["state"]):
+        saved_state = torch.load(paths["state"], map_location="cpu", weights_only=False)
+        saved_has_seed = "seed" in saved_state["config"]
+        config.update(saved_state["config"])
+        if not saved_has_seed:
+            config["seed"] = None
+        if n_updates is not None:
+            config["updates"] = n_updates
     if config_overrides:
         config.update(config_overrides)
-    if config["updates"] <= 0:
-        raise ValueError("updates must be a positive integer.")
-    if config["seed"] < 0:
-        raise ValueError("seed must be nonnegative.")
-    set_seed(config["seed"])
+    validate_config(config)
+    set_seed(seed if config["seed"] is None else config["seed"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    experiment_log = ExperimentLogger(TRAINING_LOG_PATH)
+    experiment_log = ExperimentLogger(paths["log"])
+    curriculum = CurriculumScheduler(config["max_offer"])
 
     env = TradingEnv(
         n_resources=config["n_resources"],
@@ -385,9 +430,9 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
     running_team_baseline = 0.0
     start_update = 1
 
-    if resume and os.path.exists(TRAINING_STATE_PATH):
+    if resume and os.path.exists(paths["state"]):
         state = load_training_state(
-            TRAINING_STATE_PATH,
+            paths["state"],
             agent_a,
             agent_b,
             opt,
@@ -403,7 +448,7 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
     else:
         experiment_log.reset()
         save_training_state(
-            TRAINING_STATE_PATH,
+            paths["state"],
             agent_a,
             agent_b,
             opt,
@@ -414,7 +459,7 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
         )
         print("Training started...")
     print(f"Device: {device}")
-    print(f"Seed: {config['seed']}")
+    print(f"Seed: {config['seed'] if config['seed'] is not None else 'legacy/unknown'}")
     if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(device)}")
 
@@ -432,8 +477,17 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
     try:
         for update in range(start_update, config["updates"] + 1):
             progress = update / config["updates"]
+            offer_limit = curriculum.offer_limit(progress)
             episodes = [
-                sample_episode(env, agent_a, agent_b, temperature, progress, device)
+                sample_episode(
+                    env,
+                    agent_a,
+                    agent_b,
+                    temperature,
+                    progress,
+                    device,
+                    offer_limit,
+                )
                 for _ in range(config["batch_size"])
             ]
             team_rewards = np.array(
@@ -483,8 +537,11 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
                 - conditional_entropy_a
                 - conditional_entropy_b
             )
-            strict_weight = min(1.0, progress / 0.60)
-            message_weight = config["message_mi_weight"] * (1.0 - 0.90 * strict_weight)
+            strict_weight = curriculum.strict_weight(progress)
+            message_weight = curriculum.message_weight(
+                config["message_mi_weight"],
+                progress,
+            )
             auxiliary_loss = torch.stack(
                 [
                     ep["auxiliary_a_to_b"] + ep["auxiliary_b_to_a"]
@@ -493,11 +550,10 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
             ).mean()
             loss = loss_agent_a + loss_agent_b
             loss -= message_weight * message_information
-            loss += (
-                config["utility_aux_weight"]
-                * (1.0 - strict_weight)
-                * auxiliary_loss
-            )
+            loss += curriculum.auxiliary_weight(
+                config["utility_aux_weight"],
+                progress,
+            ) * auxiliary_loss
 
             opt.zero_grad()
             loss.backward()
@@ -549,7 +605,7 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
                     }
                 )
                 save_training_state(
-                    TRAINING_STATE_PATH,
+                    paths["state"],
                     agent_a,
                     agent_b,
                     opt,
@@ -561,7 +617,7 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
                 print(f"         Saved progress at update {completed_update}.")
     except KeyboardInterrupt:
         save_training_state(
-            TRAINING_STATE_PATH,
+            paths["state"],
             agent_a,
             agent_b,
             opt,
@@ -580,7 +636,7 @@ def train(resume=True, n_updates=25000, seed=7, config_overrides=None):
             "agent_b": agent_b.state_dict(),
             "config": config,
         },
-        FINAL_CHECKPOINT_PATH,
+        paths["final"],
     )
 
     normal = evaluate(agent_a, agent_b, config, mode="normal")

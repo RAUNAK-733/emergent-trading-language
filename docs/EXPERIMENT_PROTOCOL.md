@@ -11,8 +11,8 @@ than both zero-message and random-message controls.
 ## Standard Run
 
 ```bash
-python main.py train --fresh --seed 7
-python main.py analyze
+python main.py train --fresh --seed 7 --run-dir runs/seed-7
+python main.py analyze --run-dir runs/seed-7 --figure-dir figures/seed-7
 ```
 
 Training uses 25,000 updates by default. Each update contains 64 independently
@@ -44,10 +44,15 @@ improves behavior.
 Use several random seeds before making a final claim:
 
 ```bash
-python main.py train --fresh --seed 7
-python main.py train --fresh --seed 17
-python main.py train --fresh --seed 42
+python main.py train --fresh --seed 7 --run-dir runs/seed-7
+python main.py train --fresh --seed 17 --run-dir runs/seed-17
+python main.py train --fresh --seed 42 --run-dir runs/seed-42
 ```
 
-Keep each run's checkpoints and `training_log.json` separately when comparing
-seeds. Report means and standard deviations rather than only the best run.
+Compare the runs with:
+
+```bash
+python main.py compare --runs runs/seed-7 runs/seed-17 runs/seed-42
+```
+
+Report means and standard deviations rather than only the best run.

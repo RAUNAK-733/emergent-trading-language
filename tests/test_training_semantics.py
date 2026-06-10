@@ -6,7 +6,12 @@ import numpy as np
 
 from agents.agent import Agent
 from env.trading_env import TradingEnv
-from training.train import actions_to_offers, sample_episode, training_stalled
+from training.train import (
+    actions_to_offers,
+    sample_episode,
+    training_stalled,
+    validate_config,
+)
 
 
 class TrainingSemanticsTests(unittest.TestCase):
@@ -39,6 +44,25 @@ class TrainingSemanticsTests(unittest.TestCase):
         self.assertTrue(training_stalled(2000, 0.0004))
         self.assertFalse(training_stalled(2000, 0.001))
         self.assertFalse(training_stalled(1500, 0.0))
+
+    def test_invalid_training_config_raises(self):
+        config = {
+            "n_resources": 2,
+            "max_inventory": 5,
+            "max_offer": 5,
+            "vocab_size": 1,
+            "msg_length": 1,
+            "hidden_dim": 96,
+            "updates": 100,
+            "batch_size": 64,
+            "lr": 1e-3,
+            "gumbel_temp": 1.0,
+            "temp_anneal": 0.99,
+            "seed": 7,
+        }
+
+        with self.assertRaises(ValueError):
+            validate_config(config)
 
 
 if __name__ == "__main__":
